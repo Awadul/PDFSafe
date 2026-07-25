@@ -235,8 +235,13 @@ endpoint antivirus does not quarantine the source file.
 - Scheduled full-folder sweeps
 - Signed macOS build
 
+<!-- Run the GUI -->
+
 .\.venv\Scripts\python.exe -m pdfsafe.desktop.app
 
+<!-- Run the CLI with the directory to track -->
 .\.venv\Scripts\python.exe -m pdfsafe.cli watch "C:\Users\Home\Downloads"
+
+<!-- Complete the Project from scratch from demo -->
 
 .\.venv\Scripts\python.exe "C:\Users\Home\.gemini\antigravity-ide\brain\a50953fc-02f2-4948-a933-68cb31a0e588\scratch\reset_pdfsafe.py"
