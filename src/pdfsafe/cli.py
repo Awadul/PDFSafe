@@ -189,6 +189,65 @@ def serve(
     uvicorn.run("pdfsafe.api.app:app", host=host, port=port, reload=reload)
 
 
+@app.command("watch")
+def watch(
+    target: Annotated[
+        Path | None, typer.Argument(help="Folder to monitor for new PDFs. Defaults to Downloads.")
+    ] = None,
+    poll: Annotated[int, typer.Option("--poll", help="Polling interval in seconds.")] = 5,
+) -> None:
+    """Continuously monitor a folder for new PDF files and scan them in real time."""
+    import time
+    from pdfsafe.config import get_settings
+    from pdfsafe.local.engine import LocalScanEngine, ScanEvent
+    from pdfsafe.local.watcher import FolderWatcher
+
+    settings = get_settings()
+    watch_target = target.resolve() if target else settings.watch_dir
+    if not watch_target.is_dir():
+        error_console.print(f"[red]Directory not found: {watch_target}[/red]")
+        raise typer.Exit(EXIT_ERROR)
+
+    settings.watch_folders = [str(watch_target)]
+    settings.watch_poll_seconds = poll
+    settings.watch_enabled = True
+
+    console.print(f"\n[bold green]PDFSafe File Watcher Active[/bold green]")
+    console.print(f"  [bold]Monitoring Folder:[/bold] [cyan]{watch_target}[/cyan]")
+    console.print(f"  [bold]Poll Interval:[/bold] {poll}s")
+    console.print(f"  [bold]AI Review (NVIDIA):[/bold] [{'green' if settings.ai_enabled else 'red'}]{'ENABLED' if settings.ai_enabled else 'DISABLED'}[/]")
+    console.print("  [dim]Drop any PDF file into this folder to scan it automatically. Press Ctrl+C to stop.[/dim]\n")
+
+    def on_event(event: ScanEvent) -> None:
+        if event.kind.value == "completed" and event.verdict:
+            verdict_str = event.verdict.value.upper()
+            colour = VERDICT_COLORS.get(event.verdict.value, "white")
+            console.print(
+                f"\n[bold]{event.filename}[/bold]  "
+                f"[{colour}]{verdict_str}[/{colour}]  "
+                f"score [bold]{event.risk_score}[/bold]/100"
+            )
+            if event.message:
+                console.print(f"  {event.message}")
+        elif event.kind.value == "started":
+            console.print(f"[dim]Scanning {event.filename}...[/dim]")
+
+    engine = LocalScanEngine(settings=settings)
+    engine.subscribe(on_event)
+    engine.start()
+
+    watcher = FolderWatcher(engine=engine, settings=settings)
+    watcher.start()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopping watcher...[/yellow]")
+        watcher.stop()
+        engine.stop()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

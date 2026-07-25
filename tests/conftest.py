@@ -170,11 +170,14 @@ class StubProvider:
 @pytest.fixture
 def stub_provider(monkeypatch: pytest.MonkeyPatch) -> StubProvider:
     """Replace the provider registry with a deterministic stub."""
+    import sys
+    import pdfsafe.ai.triage
     from pdfsafe.ai import budget, registry
 
+    triage_mod = sys.modules["pdfsafe.ai.triage"]
     provider = StubProvider()
     monkeypatch.setattr(registry, "get_provider", lambda name=None: provider)
-    monkeypatch.setattr("pdfsafe.ai.triage.get_provider", lambda name=None: provider)
+    monkeypatch.setattr(triage_mod, "get_provider", lambda name=None: provider)
     monkeypatch.setattr(budget, "has_budget", lambda: True)
     monkeypatch.setattr(budget, "record_usage", lambda tokens: None)
     return provider

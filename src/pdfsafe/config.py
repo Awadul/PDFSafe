@@ -56,7 +56,7 @@ class Isolation(StrEnum):
     IN_PROCESS = "in_process"
 
 
-CommaList = Annotated[list[str], Field(default_factory=list)]
+CommaList = Annotated[list[str] | str, Field(default_factory=list)]
 
 
 class JsonConfigSource(PydanticBaseSettingsSource):

@@ -18,14 +18,14 @@ document opens, a `/Launch` action that starts a program, an executable hidden a
 attachment, or a link designed to harvest credentials. PDFSafe parses the document
 structure and looks for exactly those capabilities, then scores what it finds.
 
-| | |
-|---|---|
-| **Verdict in about a second** | Structural analysis, no signatures to download, no cloud round-trip |
-| **Works offline** | Every rule runs locally. With AI review off, nothing leaves the machine |
-| **Optional AI second opinion** | For files that are neither clearly safe nor clearly malicious |
-| **Quarantine** | Malicious files are moved somewhere they cannot be opened by accident |
-| **Watch folders** | New PDFs in Downloads are scanned automatically |
-| **Explorer integration** | Right-click any PDF → *Scan with PDFSafe* |
+|                                |                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| **Verdict in about a second**  | Structural analysis, no signatures to download, no cloud round-trip     |
+| **Works offline**              | Every rule runs locally. With AI review off, nothing leaves the machine |
+| **Optional AI second opinion** | For files that are neither clearly safe nor clearly malicious           |
+| **Quarantine**                 | Malicious files are moved somewhere they cannot be opened by accident   |
+| **Watch folders**              | New PDFs in Downloads are scanned automatically                         |
+| **Explorer integration**       | Right-click any PDF → _Scan with PDFSafe_                               |
 
 ### What it does not do
 
@@ -55,15 +55,15 @@ if it exceeds the timeout.
 
 What gets extracted:
 
-| Category | Detections |
-|---|---|
-| Active content | Embedded JavaScript, `/OpenAction`, `/AA` triggers, `/Launch`, XFA forms |
-| Obfuscation | Hex-escaped names (`/J#61vaScript`), escape density, `fromCharCode`/`eval`/`unescape` chains, packed strings, mangled identifiers |
-| Exploits | Reader APIs tied to known CVEs (`util.printf`, `Collab.getIcon`, `media.newPlayer`, …), heap-spray patterns, `JBIG2Decode` |
-| Attachments | Executable extensions and magic bytes, extension/content mismatch, archives, macro-capable Office files, high-entropy blobs |
-| Network | `file:`/`smb:`/`javascript:` URIs and UNC paths, raw-IP hosts, link shorteners, punycode homographs, abuse-prone TLDs, `/GoToR` remote references |
-| Structure | Shifted headers, data appended after `%%EOF`, excessive incremental updates, encryption, parse failures, near-empty documents carrying active content |
-| Signatures | Bundled YARA rules |
+| Category       | Detections                                                                                                                                            |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Active content | Embedded JavaScript, `/OpenAction`, `/AA` triggers, `/Launch`, XFA forms                                                                              |
+| Obfuscation    | Hex-escaped names (`/J#61vaScript`), escape density, `fromCharCode`/`eval`/`unescape` chains, packed strings, mangled identifiers                     |
+| Exploits       | Reader APIs tied to known CVEs (`util.printf`, `Collab.getIcon`, `media.newPlayer`, …), heap-spray patterns, `JBIG2Decode`                            |
+| Attachments    | Executable extensions and magic bytes, extension/content mismatch, archives, macro-capable Office files, high-entropy blobs                           |
+| Network        | `file:`/`smb:`/`javascript:` URIs and UNC paths, raw-IP hosts, link shorteners, punycode homographs, abuse-prone TLDs, `/GoToR` remote references     |
+| Structure      | Shifted headers, data appended after `%%EOF`, excessive incremental updates, encryption, parse failures, near-empty documents carrying active content |
+| Signatures     | Bundled YARA rules                                                                                                                                    |
 
 ### 2. Scoring
 
@@ -117,13 +117,13 @@ There is no telemetry.
 
 ## Where things are kept
 
-| | |
-|---|---|
-| Settings | `%APPDATA%\PDFSafe\config.json` |
+|              |                                               |
+| ------------ | --------------------------------------------- |
+| Settings     | `%APPDATA%\PDFSafe\config.json`               |
 | Scan history | `%LOCALAPPDATA%\PDFSafe\data\pdfsafe.sqlite3` |
-| Quarantine | `%LOCALAPPDATA%\PDFSafe\quarantine` |
-| Logs | `%LOCALAPPDATA%\PDFSafe\logs` |
-| API key | Windows Credential Manager (`PDFSafe`) |
+| Quarantine   | `%LOCALAPPDATA%\PDFSafe\quarantine`           |
+| Logs         | `%LOCALAPPDATA%\PDFSafe\logs`                 |
+| API key      | Windows Credential Manager (`PDFSafe`)        |
 
 Uninstalling removes the program and offers to remove your history and quarantine.
 
@@ -193,12 +193,12 @@ docker compose up -d --build
 
 Only the persistence and queueing layers differ; `analysis/` and `ai/` are identical.
 
-| | Desktop | Server |
-|---|---|---|
-| Database | SQLite (WAL) | PostgreSQL + Alembic |
-| Queue | thread pool | Celery + Redis |
-| Isolation | child process | container |
-| Secrets | Credential Manager | environment |
+|           | Desktop            | Server               |
+| --------- | ------------------ | -------------------- |
+| Database  | SQLite (WAL)       | PostgreSQL + Alembic |
+| Queue     | thread pool        | Celery + Redis       |
+| Isolation | child process      | container            |
+| Secrets   | Credential Manager | environment          |
 
 ### Testing
 
@@ -234,3 +234,9 @@ endpoint antivirus does not quarantine the source file.
 - Optional ClamAV / VirusTotal enrichment
 - Scheduled full-folder sweeps
 - Signed macOS build
+
+.\.venv\Scripts\python.exe -m pdfsafe.desktop.app
+
+.\.venv\Scripts\python.exe -m pdfsafe.cli watch "C:\Users\Home\Downloads"
+
+.\.venv\Scripts\python.exe "C:\Users\Home\.gemini\antigravity-ide\brain\a50953fc-02f2-4948-a933-68cb31a0e588\scratch\reset_pdfsafe.py"

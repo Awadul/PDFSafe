@@ -304,7 +304,11 @@ def main() -> int:
         if file_arguments:
             app.scan_startup_files(file_arguments)
 
-        return app.exec()
+        try:
+            return app.exec()
+        except KeyboardInterrupt:
+            logger.info("keyboard_interrupt_received")
+            return 0
     finally:
         lock.release()
 
