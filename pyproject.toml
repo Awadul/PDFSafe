@@ -1,0 +1,163 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pdfsafe"
+version = "0.1.0"
+description = "PDFSafe - desktop PDF malware scanner with static analysis and optional AI triage."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "PDFSafe" }]
+keywords = ["pdf", "malware", "security", "static-analysis", "desktop"]
+classifiers = [
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+
+# ---------------------------------------------------------------------------
+# Core: everything the analysis engine needs. Deliberately small - this is what
+# ends up inside the shipped .exe.
+# ---------------------------------------------------------------------------
+dependencies = [
+    # configuration / validation
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    # persistence (SQLite on the desktop, Postgres on the server target)
+    "sqlalchemy>=2.0.36",
+    # pdf analysis
+    "pikepdf>=9.4.0",
+    "pypdf>=5.1.0",
+    "yara-python>=4.5.1",
+    # ai
+    "anthropic>=0.40.0",
+    "httpx>=0.27.2",
+    "tenacity>=9.0.0",
+    # secrets: Windows Credential Manager / macOS Keychain / Secret Service
+    "keyring>=25.5.0",
+    # observability
+    "structlog>=24.4.0",
+    "prometheus-client>=0.21.0",
+    # cli
+    "typer>=0.13.0",
+    "rich>=13.9.0",
+]
+
+[project.optional-dependencies]
+# The shipped desktop application.
+desktop = [
+    "PySide6-Essentials>=6.8.0",
+    "watchdog>=6.0.0",
+    "pywin32>=308; sys_platform == 'win32'",
+]
+
+# Optional multi-user server deployment (Docker, Postgres, Celery, REST API).
+server = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.17",
+    "jinja2>=3.1.4",
+    "anyio>=4.6.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "alembic>=1.14.0",
+    "asyncpg>=0.30.0",
+    "psycopg[binary]>=3.2.0",
+    "greenlet>=3.1.0",
+    "celery[redis]>=5.4.0",
+    "redis>=5.2.0",
+    "boto3>=1.35.0",
+]
+
+build = [
+    "pyinstaller>=6.11.0",
+    "pillow>=11.0.0",
+]
+
+dev = [
+    "pdfsafe[desktop,server,build]",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "pytest-qt>=4.4.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "aiosqlite>=0.20.0",
+    "pre-commit>=4.0.0",
+]
+
+[project.scripts]
+pdfsafe = "pdfsafe.cli:app"
+
+[project.gui-scripts]
+# Windowed entry point - no console window when launched from the shell.
+pdfsafe-desktop = "pdfsafe.desktop.app:main"
+
+[tool.hatch.build.targets.wheel]
+# The YARA rules under analysis/rules are picked up automatically as package
+# data; do not add a force-include for them or hatchling reports a conflict.
+packages = ["src/pdfsafe"]
+
+# --------------------------------------------------------------------------
+# Ruff
+# --------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "ASYNC", "S", "RUF"]
+ignore = ["S101", "B008", "S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "N802"]
+"migrations/**" = ["E501", "N999"]
+"packaging/**" = ["E501"]
+"src/pdfsafe/desktop/**" = ["N802"]  # Qt overrides use camelCase
+
+[tool.ruff.lint.isort]
+known-first-party = ["pdfsafe"]
+
+# --------------------------------------------------------------------------
+# mypy
+# --------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+exclude = ["migrations/", "build/", "dist/", "packaging/"]
+
+[[tool.mypy.overrides]]
+module = [
+    "yara", "pikepdf.*", "celery.*", "boto3", "botocore.*",
+    "keyring.*", "watchdog.*", "win32api", "win32con", "winreg",
+]
+ignore_missing_imports = true
+
+# --------------------------------------------------------------------------
+# pytest
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "gui: requires a Qt display",
+    "server: requires the optional server extras",
+    "llm: hits a real LLM provider",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/pdfsafe"]
+omit = ["*/migrations/*", "*/worker/celery_app.py", "*/desktop/*"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]

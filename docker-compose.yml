@@ -1,0 +1,128 @@
+# ---------------------------------------------------------------------------
+# OPTIONAL multi-user server deployment.
+#
+# The shipped product is a Windows desktop application (see packaging/) which
+# needs none of this. This stack exists for organisations that want a shared
+# scanning service: same analysis and AI packages, different persistence and
+# queueing. Requires: pip install '.[server]'
+# ---------------------------------------------------------------------------
+name: pdfsafe
+
+x-app-env: &app-env
+  PDFSAFE_DATABASE_URL: postgresql+asyncpg://pdfsafe:pdfsafe@postgres:5432/pdfsafe
+  PDFSAFE_REDIS_URL: redis://redis:6379/0
+  PDFSAFE_CELERY_BROKER_URL: redis://redis:6379/1
+  PDFSAFE_CELERY_RESULT_BACKEND: redis://redis:6379/2
+  PDFSAFE_STORAGE_BACKEND: local
+  PDFSAFE_STORAGE_LOCAL_PATH: /app/var/uploads
+  PDFSAFE_WATCH_DIR: /app/var/watch
+
+x-app-base: &app-base
+  build:
+    context: .
+    target: runtime
+  env_file:
+    - .env
+  environment: *app-env
+  volumes:
+    - uploads:/app/var
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pdfsafe
+      POSTGRES_PASSWORD: pdfsafe
+      POSTGRES_DB: pdfsafe
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdfsafe -d pdfsafe"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    <<: *app-base
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *app-base
+    command:
+      - uvicorn
+      - pdfsafe.api.app:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --proxy-headers
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app-base
+    command:
+      - celery
+      - -A
+      - pdfsafe.worker.celery_app:celery_app
+      - worker
+      - --loglevel=INFO
+      - --concurrency=4
+      - -Q
+      - scans,default
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A pdfsafe.worker.celery_app:celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  beat:
+    <<: *app-base
+    command:
+      - celery
+      - -A
+      - pdfsafe.worker.celery_app:celery_app
+      - beat
+      - --loglevel=INFO
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["observability"]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:

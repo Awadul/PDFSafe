@@ -1,0 +1,37 @@
+{% if scans %}
+<table class="grid">
+  <thead>
+    <tr>
+      <th>File</th>
+      <th>Verdict</th>
+      <th>Score</th>
+      <th>Status</th>
+      <th>Decided by</th>
+      <th>Submitted</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for scan in scans %}
+    <tr onclick="window.location='/scans/{{ scan.id }}'" class="clickable">
+      <td>
+        <span class="filename">{{ scan.filename }}</span>
+        <span class="mono muted">{{ scan.sha256[:12] }}</span>
+      </td>
+      <td><span class="badge {{ verdict_styles.get(scan.verdict.value, 'muted') }}">{{ scan.verdict.value }}</span></td>
+      <td>
+        <div class="score">
+          <div class="score-bar"><span style="width: {{ scan.risk_score }}%"></span></div>
+          <span class="mono">{{ scan.risk_score }}</span>
+        </div>
+      </td>
+      <td><span class="status status-{{ scan.status.value }}">{{ scan.status.value }}</span></td>
+      <td class="muted">{{ scan.decided_by.value if scan.decided_by else '-' }}</td>
+      <td class="muted mono">{{ scan.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="muted table-foot">Showing {{ scans | length }} of {{ total }} scans.</p>
+{% else %}
+<p class="empty">No scans yet. Upload a PDF above to get started.</p>
+{% endif %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}PDFSafe - Dashboard{% endblock %}
+
+{% block content %}
+<section class="stats">
+  <article class="stat">
+    <span class="stat-label">Total scanned</span>
+    <span class="stat-value">{{ stats.total }}</span>
+  </article>
+  <article class="stat">
+    <span class="stat-label">Last 24h</span>
+    <span class="stat-value">{{ stats.scanned_last_24h }}</span>
+  </article>
+  <article class="stat bad">
+    <span class="stat-label">Malicious (24h)</span>
+    <span class="stat-value">{{ stats.malicious_last_24h }}</span>
+  </article>
+  <article class="stat">
+    <span class="stat-label">AI reviews (24h)</span>
+    <span class="stat-value">{{ stats.ai_calls_last_24h }}</span>
+  </article>
+  <article class="stat">
+    <span class="stat-label">Avg duration</span>
+    <span class="stat-value">
+      {% if stats.avg_duration_ms %}{{ (stats.avg_duration_ms / 1000) | round(2) }}s{% else %}-{% endif %}
+    </span>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Submit a document</h2>
+    <span class="hint">
+      Max {{ settings.max_upload_mb }} MB &middot;
+      AI: {% if settings.ai_enabled %}{{ settings.ai_provider }} (escalates {{ settings.escalate_min }}-{{ settings.escalate_max }}){% else %}disabled{% endif %}
+    </span>
+  </div>
+
+  <form class="upload" hx-post="/upload" hx-encoding="multipart/form-data" hx-target="#flash" hx-swap="innerHTML">
+    <input type="file" name="file" accept="application/pdf,.pdf" required>
+    <label class="checkbox">
+      <input type="checkbox" name="force_ai" value="1">
+      Force AI review
+    </label>
+    <button type="submit">Analyse</button>
+  </form>
+  <div id="flash" class="flash-slot"></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Recent scans</h2>
+    <form class="filters"
+          hx-get="/scans"
+          hx-target="#scan-table"
+          hx-trigger="change, keyup delay:400ms from:input[name='q']"
+          hx-swap="innerHTML">
+      <input type="search" name="q" placeholder="Filename contains…" autocomplete="off">
+      <select name="verdict">
+        <option value="">Any verdict</option>
+        {% for value in verdicts %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+      </select>
+      <select name="status">
+        <option value="">Any status</option>
+        {% for value in statuses %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+
+  <div id="scan-table" hx-get="/scans" hx-trigger="every 10s" hx-swap="innerHTML">
+    {% include "partials/scan_table.html" %}
+  </div>
+</section>
+{% endblock %}

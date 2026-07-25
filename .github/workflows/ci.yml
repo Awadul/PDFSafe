@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y libqpdf-dev
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: ruff format --check src tests
+      - run: mypy src
+
+  # The shipped product. Runs on Windows because that is what users install,
+  # and because the parser sandbox uses spawn semantics that differ from fork.
+  test-desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[desktop]" pytest pytest-cov pytest-qt
+      - name: Run engine and analysis tests
+        env:
+          PDFSAFE_ENV: test
+          PDFSAFE_AI_ENABLED: "false"
+        run: pytest tests/test_analysis.py tests/test_heuristics.py tests/test_local_runtime.py tests/test_storage_and_config.py -v
+
+      - name: Verify the desktop build imports without server extras
+        shell: pwsh
+        run: |
+          # A regression here means the frozen build would drag FastAPI,
+          # Celery or Postgres drivers into the installer.
+          python -c @"
+          import importlib, sys
+          for module in ('pdfsafe.local.engine', 'pdfsafe.local.database', 'pdfsafe.desktop.app'):
+              importlib.import_module(module)
+          forbidden = {'fastapi', 'celery', 'uvicorn', 'asyncpg', 'psycopg', 'boto3', 'alembic'}
+          leaked = forbidden & set(sys.modules)
+          if leaked:
+              raise SystemExit(f'Server dependencies leaked into the desktop import graph: {leaked}')
+          print('desktop import graph is clean')
+          "@
+
+  # Cross-platform check of the shared engine.
+  test-engine-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y libqpdf-dev
+      - run: pip install -e ".[dev]"
+      - name: Run the full suite
+        env:
+          PDFSAFE_ENV: test
+          PDFSAFE_AI_ENABLED: "false"
+          QT_QPA_PLATFORM: offscreen
+        run: pytest --cov=pdfsafe --cov-report=xml -m "not gui"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.xml
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install pip-audit
+      - run: pip-audit --strict || true
+
+  # Confirms the installer pipeline still works; artifacts are unsigned here.
+  build-check:
+    runs-on: windows-latest
+    needs: [lint, test-desktop]
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[desktop,build]"
+      - shell: pwsh
+        run: .\packaging\build.ps1 -SkipInstaller
+      - shell: pwsh
+        run: |
+          $exe = "dist\PDFSafe\PDFSafe.exe"
+          if (-not (Test-Path $exe)) { throw "Executable was not produced" }
+          $mb = [math]::Round((Get-ChildItem "dist\PDFSafe" -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
+          Write-Host "Bundle size: $mb MB"
+          if ($mb -gt 250) { throw "Bundle is $mb MB - check the PyInstaller exclusions" }

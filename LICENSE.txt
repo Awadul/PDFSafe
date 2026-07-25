@@ -1,0 +1,49 @@
+PDFSafe End User License Agreement
+==================================
+
+Copyright (c) 2026 PDFSafe. All rights reserved.
+
+THIS IS A TEMPLATE. Replace it with terms reviewed by your own counsel before
+distributing PDFSafe to anyone.
+
+1. Licence
+   Subject to these terms, you are granted a personal, non-exclusive,
+   non-transferable licence to install and use PDFSafe on computers you own or
+   control.
+
+2. Restrictions
+   You may not redistribute, sell, rent, sublicense, reverse engineer, or
+   create derivative works from the software except where such restriction is
+   prohibited by applicable law.
+
+3. Privacy
+   PDFSafe analyses documents locally. If you enable AI review and supply your
+   own API key, a summary of what the analyser found in an ambiguous document —
+   not the document itself — is transmitted to the provider you configured,
+   under that provider's terms and privacy policy. No telemetry is collected by
+   PDFSafe.
+
+4. No warranty
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+5. Security disclaimer
+   PDFSafe is a detection aid, not a guarantee. No scanner identifies every
+   malicious document, and every scanner occasionally flags a harmless one. Do
+   not rely on PDFSafe as your only protection, and do not treat a "clean"
+   verdict as proof that a document is safe.
+
+6. Limitation of liability
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+   DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+   OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+   USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+7. Third-party components
+   PDFSafe includes open-source components, each under its own licence,
+   including pikepdf and qpdf (Apache-2.0), pypdf (BSD-3-Clause), yara-python
+   (BSD-3-Clause), SQLAlchemy (MIT), Pydantic (MIT), and Qt for Python /
+   PySide6 (LGPL-3.0). Qt is dynamically linked; you are entitled to the
+   corresponding LGPL source and to replace those libraries. Full licence texts
+   are installed alongside the application.

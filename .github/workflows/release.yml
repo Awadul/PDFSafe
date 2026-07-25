@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (defaults to pyproject.toml)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check src tests
+          mypy src
+
+      - name: Test
+        env:
+          PDFSAFE_ENV: test
+          PDFSAFE_AI_ENABLED: "false"
+        run: pytest -m "not gui"
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      # Signing runs only when a certificate is configured. Fork PRs and
+      # untrusted contexts therefore produce unsigned artifacts rather than
+      # failing, and secrets are never exposed to them.
+      - name: Import code-signing certificate
+        if: ${{ env.CERT_PFX_BASE64 != '' }}
+        env:
+          CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          $bytes = [Convert]::FromBase64String($env:CERT_PFX_BASE64)
+          $path = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($path, $bytes)
+          $password = ConvertTo-SecureString $env:CERT_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $path -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          "CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Remove-Item $path -Force
+
+      - name: Build
+        shell: pwsh
+        env:
+          PDFSAFE_CERT_THUMBPRINT: ${{ env.CERT_THUMBPRINT }}
+        run: |
+          $arguments = @{ Clean = $true }
+          if ($env:PDFSAFE_CERT_THUMBPRINT) {
+            $arguments.CertificateThumbprint = $env:PDFSAFE_CERT_THUMBPRINT
+          }
+          .\packaging\build.ps1 @arguments
+
+      - name: Smoke test the built executable
+        shell: pwsh
+        run: |
+          # The GUI cannot be exercised headlessly, but the bundle must at
+          # least import cleanly and find its YARA rules.
+          $exe = "dist\PDFSafe\PDFSafe.exe"
+          if (-not (Test-Path $exe)) { throw "Executable missing" }
+          $size = (Get-Item $exe).Length
+          Write-Host "PDFSafe.exe: $([math]::Round($size/1MB,1)) MB"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdfsafe-windows
+          path: |
+            dist/installer/*.exe
+            dist/installer/latest.json
+          retention-days: 30
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/installer/*.exe
+            dist/installer/latest.json
+          generate_release_notes: true
+          draft: true

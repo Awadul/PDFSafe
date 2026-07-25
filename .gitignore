@@ -1,0 +1,42 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# build artefacts
+build/
+dist/
+*.spec.bak
+packaging/assets/*.ico
+packaging/assets/*.png
+
+# env / secrets
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.p12
+
+# runtime data
+var/
+quarantine/
+*.log
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# editors / os
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
