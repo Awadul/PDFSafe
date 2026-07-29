@@ -176,20 +176,20 @@ def download(
     downloaded = 0
 
     try:
-        with httpx.Client(timeout=DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
-            with client.stream(
-                "GET", info.url, headers={"User-Agent": USER_AGENT}
-            ) as response:
-                response.raise_for_status()
-                total = int(response.headers.get("content-length") or info.size or 0)
+        with (
+            httpx.Client(timeout=DOWNLOAD_TIMEOUT, follow_redirects=True) as client,
+            client.stream("GET", info.url, headers={"User-Agent": USER_AGENT}) as response,
+        ):
+            response.raise_for_status()
+            total = int(response.headers.get("content-length") or info.size or 0)
 
-                with partial.open("wb") as handle:
-                    for chunk in response.iter_bytes(CHUNK_SIZE):
-                        handle.write(chunk)
-                        digest.update(chunk)
-                        downloaded += len(chunk)
-                        if progress is not None:
-                            progress(downloaded, total)
+            with partial.open("wb") as handle:
+                for chunk in response.iter_bytes(CHUNK_SIZE):
+                    handle.write(chunk)
+                    digest.update(chunk)
+                    downloaded += len(chunk)
+                    if progress is not None:
+                        progress(downloaded, total)
     except httpx.HTTPError as exc:
         partial.unlink(missing_ok=True)
         raise UpdateError(f"Download failed: {exc}") from exc
@@ -262,13 +262,13 @@ def launch_installer(installer: Path, *, silent: bool = False) -> None:
     logger.info("update_installer_launched", path=str(installer), silent=silent)
     try:
         if sys.platform == "win32":
-            subprocess.Popen(  # noqa: S603
+            subprocess.Popen(
                 arguments,
                 close_fds=True,
                 creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
             )
         else:  # pragma: no cover
-            subprocess.Popen(arguments, close_fds=True, start_new_session=True)  # noqa: S603
+            subprocess.Popen(arguments, close_fds=True, start_new_session=True)
     except OSError as exc:
         raise UpdateError(f"Could not start the installer: {exc}") from exc
 

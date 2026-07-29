@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in the application does not work
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a **wrong verdict**, use the False positive or Missed detection
+        template instead. For a **security vulnerability**, follow
+        [SECURITY.md](../blob/main/SECURITY.md) — do not open a public issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open PDFSafe
+        2. Drag a file onto the window
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: >
+        `%LOCALAPPDATA%\PDFSafe\logs\pdfsafe.log`, or Help → About → Open logs.
+        Logs contain filenames and paths — redact anything sensitive.
+      render: text
+
+  - type: dropdown
+    id: install-type
+    attributes:
+      label: How are you running PDFSafe?
+      options:
+        - Installer (PDFSafe-x.y.z-setup.exe)
+        - Portable bundle (dist/PDFSafe)
+        - From source
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: PDFSafe version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: "`winver`"
+      placeholder: "Windows 11 23H2 (22631.3155)"

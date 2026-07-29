@@ -32,7 +32,9 @@ def register_provider(name: str, factory: ProviderFactory, *, override: bool = F
     key = name.strip().lower()
     with _LOCK:
         if key in _FACTORIES and not override:
-            raise ValueError(f"Provider '{key}' is already registered; pass override=True to replace")
+            raise ValueError(
+                f"Provider '{key}' is already registered; pass override=True to replace"
+            )
         _FACTORIES[key] = factory
         _INSTANCES.pop(key, None)
     logger.debug("ai_provider_registered", provider=key)

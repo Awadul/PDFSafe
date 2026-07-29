@@ -33,7 +33,9 @@ def outcome(score: int, *, critical: bool = False) -> HeuristicOutcome:
 
 
 class TestEscalationGate:
-    def test_disabled_ai_never_escalates(self, settings: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_disabled_ai_never_escalates(
+        self, settings: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(settings, "ai_enabled", False)
         decision = should_escalate(outcome(50), settings)
         assert not decision.escalate
@@ -73,7 +75,9 @@ class TestEscalationGate:
 
 
 class TestTriage:
-    def test_heuristics_only_when_gate_closed(self, settings: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_heuristics_only_when_gate_closed(
+        self, settings: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(settings, "ai_enabled", False)
         result = StaticAnalysisResult(sha256="a" * 64, md5="b" * 32, file_size=1)
         decision = triage(result, outcome(10), settings=settings)
@@ -179,8 +183,13 @@ class TestAIVerdictSchema:
         assert verdict.verdict is expected
 
     def test_risk_score_is_clamped(self) -> None:
-        assert AIVerdict(verdict="clean", risk_score=500, confidence=0.5, summary="x").risk_score == 100
-        assert AIVerdict(verdict="clean", risk_score=-20, confidence=0.5, summary="x").risk_score == 0
+        assert (
+            AIVerdict(verdict="clean", risk_score=500, confidence=0.5, summary="x").risk_score
+            == 100
+        )
+        assert (
+            AIVerdict(verdict="clean", risk_score=-20, confidence=0.5, summary="x").risk_score == 0
+        )
 
     def test_schema_is_tool_ready(self) -> None:
         from pdfsafe.ai.prompts import tool_definition

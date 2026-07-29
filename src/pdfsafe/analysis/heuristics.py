@@ -623,7 +623,7 @@ class HeuristicEngine:
         elif Severity.HIGH in severities:
             score = max(score, HIGH_FLOOR)
 
-        return int(round(max(0.0, min(100.0, score))))
+        return round(max(0.0, min(100.0, score)))
 
     @staticmethod
     def to_verdict(score: int, indicators: list[IndicatorResult]) -> Verdict:

@@ -6,6 +6,7 @@ credential manager and never touches that file.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from PySide6.QtWidgets import (
@@ -425,9 +426,7 @@ class SettingsDialog(QDialog):
             "ai_share_text_excerpt": self._share_text.isChecked(),
             "custom_ai_base_url": self._custom_url.text().strip(),
             "watch_enabled": self._watch_enabled.isChecked(),
-            "watch_folders": [
-                self._folders.item(i).text() for i in range(self._folders.count())
-            ],
+            "watch_folders": [self._folders.item(i).text() for i in range(self._folders.count())],
             "watch_recursive": self._recursive.isChecked(),
             "autostart": self._autostart.isChecked(),
             "start_minimized": self._start_minimized.isChecked(),
@@ -478,10 +477,9 @@ class SettingsDialog(QDialog):
                     target = f'"{sys.executable}" --minimized'
                     winreg.SetValueEx(key, "PDFSafe", 0, winreg.REG_SZ, target)
                 else:
-                    try:
+                    # Already absent is the desired end state, not an error.
+                    with contextlib.suppress(FileNotFoundError):
                         winreg.DeleteValue(key, "PDFSafe")
-                    except FileNotFoundError:
-                        pass
         except OSError as exc:  # pragma: no cover
             logger.warning("autostart_update_failed", error=str(exc))
 

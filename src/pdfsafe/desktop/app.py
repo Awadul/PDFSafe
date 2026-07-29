@@ -20,7 +20,7 @@ from pdfsafe.local.sandbox import install_freeze_support
 # Must run before Qt or multiprocessing are touched.
 install_freeze_support()
 
-from PySide6.QtCore import QTimer, Qt  # noqa: E402
+from PySide6.QtCore import Qt, QTimer  # noqa: E402
 from PySide6.QtGui import QAction  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
@@ -179,9 +179,7 @@ class PDFSafeApplication(QApplication):
     def _on_queue_changed(self, depth: int) -> None:
         if self._tray is None:
             return
-        self._tray.setToolTip(
-            f"PDFSafe — scanning ({depth} queued)" if depth else "PDFSafe — idle"
-        )
+        self._tray.setToolTip(f"PDFSafe — scanning ({depth} queued)" if depth else "PDFSafe — idle")
 
     def _reset_tray_icon(self) -> None:
         if self._tray is not None:
@@ -239,7 +237,9 @@ def _install_excepthook() -> None:
                 "Please include that file if you report this.",
             )
         except Exception:  # pragma: no cover - Qt may already be gone
-            pass
+            # The log line above already landed; showing the dialog is the
+            # optional half. Never raise from inside an excepthook.
+            print(f"PDFSafe crashed: {exc_type.__name__}: {exc}", file=sys.stderr)
 
     sys.excepthook = handler
 
@@ -264,7 +264,7 @@ def _parse_arguments(argv: list[str]) -> tuple[list[str], bool]:
 
 def main() -> int:
     """Run the desktop application. Returns a process exit code."""
-    configure_logging(to_file=True)
+    configure_logging(to_file=True, force=True)
 
     file_arguments, minimized = _parse_arguments(sys.argv)
 

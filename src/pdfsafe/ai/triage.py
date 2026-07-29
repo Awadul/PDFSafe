@@ -176,7 +176,7 @@ def _fuse(
     assert call.verdict is not None  # guarded by the caller
     ai = call.verdict
 
-    blended = int(round(AI_SCORE_WEIGHT * ai.risk_score + (1 - AI_SCORE_WEIGHT) * outcome.score))
+    blended = round(AI_SCORE_WEIGHT * ai.risk_score + (1 - AI_SCORE_WEIGHT) * outcome.score)
 
     verdict = ai.verdict
     has_critical = any(i.severity is Severity.CRITICAL for i in outcome.indicators)

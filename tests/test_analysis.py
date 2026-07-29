@@ -131,7 +131,12 @@ class TestURLAnalysis:
         finding = url_analysis.classify("https://www.example.com/invoice.pdf")
         assert finding is not None
         assert not any(
-            (finding.is_ip_literal, finding.is_shortener, finding.is_punycode, finding.suspicious_tld)
+            (
+                finding.is_ip_literal,
+                finding.is_shortener,
+                finding.is_punycode,
+                finding.suspicious_tld,
+            )
         )
 
     def test_extracts_from_raw_bytes(self) -> None:

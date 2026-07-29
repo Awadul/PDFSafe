@@ -8,7 +8,7 @@ help: ## Show this help
 
 # ---------------------------------------------------------------- setup ----
 .PHONY: install
-install: ## Create a venv and install everything (desktop + server + dev)
+install: ## Create a venv and install everything (desktop + build + dev tools)
 	$(PY) -m venv $(VENV)
 	$(VENV)/bin/pip install --upgrade pip
 	$(VENV)/bin/pip install -e ".[dev]"
@@ -44,8 +44,8 @@ test: ## Run the test suite
 	pytest
 
 .PHONY: test-fast
-test-fast: ## Skip GUI and server suites
-	pytest -m "not gui and not server"
+test-fast: ## Skip the GUI suite (no Qt needed)
+	pytest -m "not gui"
 
 # ----------------------------------------------------------------- ship ----
 .PHONY: icons
@@ -59,19 +59,6 @@ build: ## Build the Windows executable and installer (PowerShell)
 .PHONY: build-exe
 build-exe: ## Build the executable only
 	powershell -ExecutionPolicy Bypass -File packaging/build.ps1 -SkipInstaller
-
-# --------------------------------------------- optional server target ------
-.PHONY: server-up
-server-up: ## Start the optional multi-user server stack
-	docker compose up -d --build
-
-.PHONY: server-down
-server-down: ## Stop the server stack
-	docker compose down
-
-.PHONY: server-migrate
-server-migrate: ## Apply PostgreSQL migrations (server target only)
-	alembic upgrade head
 
 # ---------------------------------------------------------------- misc -----
 .PHONY: clean

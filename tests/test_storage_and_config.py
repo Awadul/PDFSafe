@@ -63,13 +63,6 @@ class TestLocalStorage:
 
 
 class TestSettings:
-    def test_csv_fields_are_split(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pdfsafe.config import Settings
-
-        monkeypatch.setenv("PDFSAFE_API_KEYS", "a, b ,c")
-        settings = Settings()
-        assert settings.api_keys == ["a", "b", "c"]
-
     def test_escalation_thresholds_must_be_ordered(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from pdfsafe.config import Settings
 
@@ -77,29 +70,6 @@ class TestSettings:
         monkeypatch.setenv("PDFSAFE_AI_ESCALATE_MAX_SCORE", "10")
         with pytest.raises(ValueError, match="ai_escalate_min_score"):
             Settings()
-
-    def test_s3_requires_a_bucket(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pdfsafe.config import Settings
-
-        monkeypatch.setenv("PDFSAFE_STORAGE_BACKEND", "s3")
-        monkeypatch.setenv("PDFSAFE_S3_BUCKET", "")
-        with pytest.raises(ValueError, match="s3_bucket"):
-            Settings()
-
-    def test_production_requires_secrets(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pdfsafe.config import Settings
-
-        monkeypatch.setenv("PDFSAFE_ENV", "production")
-        monkeypatch.setenv("PDFSAFE_API_KEYS", "")
-        with pytest.raises(ValueError, match="SECRET_KEY|API_KEYS"):
-            Settings()
-
-    def test_sync_database_url_uses_psycopg(self, settings: Any) -> None:
-        from pdfsafe.config import Settings
-
-        candidate = Settings(database_url="postgresql+asyncpg://u:p@h/db")
-        assert "psycopg" in candidate.sync_database_url
-        assert "asyncpg" not in candidate.sync_database_url
 
 
 class TestProviderRegistry:
@@ -111,9 +81,10 @@ class TestProviderRegistry:
     def test_unconfigured_provider_falls_back_to_null(
         self, monkeypatch: pytest.MonkeyPatch, settings: Any
     ) -> None:
+        from pydantic import SecretStr
+
         from pdfsafe import credentials
         from pdfsafe.ai import registry
-        from pydantic import SecretStr
 
         registry.reset()
         monkeypatch.setattr(settings, "ai_enabled", True)

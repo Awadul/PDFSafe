@@ -41,7 +41,7 @@ class DropZone(QWidget):
 
     # ----------------------------------------------------------- dragging --
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
-        if self._pdf_paths(event) :
+        if self._pdf_paths(event):
             event.acceptProposedAction()
             self._set_active(True)
         else:

@@ -103,19 +103,6 @@ class AINotConfiguredError(AIProviderError):
     message = "No AI provider is configured."
 
 
-# -------------------------------------------------------------- transport ---
-class AuthenticationError(PDFSafeError):
-    code = "unauthorized"
-    http_status = 401
-    message = "A valid API key is required."
-
-
-class RateLimitExceededError(PDFSafeError):
-    code = "rate_limited"
-    http_status = 429
-    message = "Too many requests."
-
-
 class StorageError(PDFSafeError):
     code = "storage_error"
     http_status = 500

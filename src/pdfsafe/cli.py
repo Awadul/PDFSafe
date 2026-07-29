@@ -20,9 +20,16 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from pdfsafe import __version__
-from pdfsafe.analysis.pipeline import analyze_file
-from pdfsafe.enums import Severity, Verdict
+from pdfsafe.local.sandbox import install_freeze_support
+
+# Must run before anything imports multiprocessing machinery. In a frozen build
+# the parser sandbox re-launches this executable to spawn a child; without the
+# guard installed first, the child re-runs the CLI instead of the worker body.
+install_freeze_support()
+
+from pdfsafe import __version__  # noqa: E402
+from pdfsafe.analysis.pipeline import analyze_file  # noqa: E402
+from pdfsafe.enums import Severity, Verdict  # noqa: E402
 
 app = typer.Typer(
     name="pdfsafe",
@@ -59,17 +66,22 @@ EXIT_ERROR = 3
 @app.command()
 def scan(
     target: Annotated[Path, typer.Argument(help="A PDF file or a directory of PDFs.")],
-    ai: Annotated[bool, typer.Option("--ai", help="Force AI review regardless of the score gate.")] = False,
+    ai: Annotated[
+        bool, typer.Option("--ai", help="Force AI review regardless of the score gate.")
+    ] = False,
     no_ai: Annotated[bool, typer.Option("--no-ai", help="Skip AI review entirely.")] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Emit machine-readable JSON.")] = False,
     verbose: Annotated[bool, typer.Option("-v", "--verbose", help="Show every indicator.")] = False,
+    recursive: Annotated[
+        bool, typer.Option("-r", "--recursive", help="Search subdirectories recursively.")
+    ] = True,
 ) -> None:
     """Analyse a file or directory and print the verdict."""
     from pdfsafe.ai.triage import triage
     from pdfsafe.config import get_settings
 
     settings = get_settings()
-    targets = _collect(target)
+    targets = _collect(target, recursive=recursive)
     if not targets:
         error_console.print(f"[red]No PDF files found at {target}[/red]")
         raise typer.Exit(EXIT_ERROR)
@@ -159,34 +171,9 @@ def config() -> None:
 
 
 @app.command()
-def keygen(
-    count: Annotated[int, typer.Option(help="How many keys to generate.")] = 1,
-) -> None:
-    """Generate API keys for PDFSAFE_API_KEYS."""
-    from pdfsafe.api.security import generate_key, hash_key
-
-    for _ in range(max(1, count)):
-        key = generate_key()
-        console.print(f"[bold]key:[/bold]  {key}")
-        console.print(f"[dim]sha256: {hash_key(key)}[/dim]\n")
-
-
-@app.command()
 def version() -> None:
     """Print the PDFSafe version."""
     console.print(f"PDFSafe {__version__}")
-
-
-@app.command("serve")
-def serve(
-    host: Annotated[str, typer.Option()] = "127.0.0.1",
-    port: Annotated[int, typer.Option()] = 8000,
-    reload: Annotated[bool, typer.Option("--reload")] = False,
-) -> None:
-    """Run the API and dashboard with uvicorn."""
-    import uvicorn
-
-    uvicorn.run("pdfsafe.api.app:app", host=host, port=port, reload=reload)
 
 
 @app.command("watch")
@@ -194,32 +181,61 @@ def watch(
     target: Annotated[
         Path | None, typer.Argument(help="Folder to monitor for new PDFs. Defaults to Downloads.")
     ] = None,
+    ai: Annotated[
+        bool, typer.Option("--ai", help="Force AI review regardless of the score gate.")
+    ] = False,
+    no_ai: Annotated[bool, typer.Option("--no-ai", help="Skip AI review entirely.")] = False,
     poll: Annotated[int, typer.Option("--poll", help="Polling interval in seconds.")] = 5,
+    recursive: Annotated[
+        bool, typer.Option("-r", "--recursive", help="Watch subdirectories recursively.")
+    ] = False,
 ) -> None:
     """Continuously monitor a folder for new PDF files and scan them in real time."""
     import time
+
     from pdfsafe.config import get_settings
-    from pdfsafe.local.engine import LocalScanEngine, ScanEvent
+    from pdfsafe.local.engine import LocalScanEngine, ScanEvent, ScanEventKind
     from pdfsafe.local.watcher import FolderWatcher
 
-    settings = get_settings()
-    watch_target = target.resolve() if target else settings.watch_dir
+    if poll < 1:
+        error_console.print("[red]Poll interval must be at least 1 second.[/red]")
+        raise typer.Exit(EXIT_ERROR)
+
+    base_settings = get_settings()
+    watch_target = target.resolve() if target else base_settings.watch_dir
     if not watch_target.is_dir():
         error_console.print(f"[red]Directory not found: {watch_target}[/red]")
         raise typer.Exit(EXIT_ERROR)
 
-    settings.watch_folders = [str(watch_target)]
-    settings.watch_poll_seconds = poll
-    settings.watch_enabled = True
+    ai_enabled = True if ai else (False if no_ai else base_settings.ai_enabled)
+    ai_always_escalate = True if ai else base_settings.ai_always_escalate
 
-    console.print(f"\n[bold green]PDFSafe File Watcher Active[/bold green]")
+    settings = base_settings.model_copy(
+        update={
+            "watch_folders": [str(watch_target)],
+            "watch_poll_seconds": poll,
+            "watch_enabled": True,
+            "watch_recursive": recursive,
+            "ai_enabled": ai_enabled,
+            "ai_always_escalate": ai_always_escalate,
+        }
+    )
+
+    provider_name = settings.ai_provider.value.upper()
+    console.print("\n[bold green]PDFSafe File Watcher Active[/bold green]")
     console.print(f"  [bold]Monitoring Folder:[/bold] [cyan]{watch_target}[/cyan]")
-    console.print(f"  [bold]Poll Interval:[/bold] {poll}s")
-    console.print(f"  [bold]AI Review (NVIDIA):[/bold] [{'green' if settings.ai_enabled else 'red'}]{'ENABLED' if settings.ai_enabled else 'DISABLED'}[/]")
-    console.print("  [dim]Drop any PDF file into this folder to scan it automatically. Press Ctrl+C to stop.[/dim]\n")
+    console.print(
+        f"  [bold]Poll Interval:[/bold] {poll}s (Recursive: {'YES' if recursive else 'NO'})"
+    )
+    ai_colour = "green" if settings.ai_enabled else "red"
+    ai_state = "ENABLED" if settings.ai_enabled else "DISABLED"
+    console.print(f"  [bold]AI Review ({provider_name}):[/bold] [{ai_colour}]{ai_state}[/]")
+    console.print(
+        "  [dim]Drop any PDF into this folder to scan it. Press Ctrl+C to stop.[/dim]\n"
+    )
 
     def on_event(event: ScanEvent) -> None:
-        if event.kind.value == "completed" and event.verdict:
+        if event.kind is ScanEventKind.COMPLETED and event.verdict:
             verdict_str = event.verdict.value.upper()
             colour = VERDICT_COLORS.get(event.verdict.value, "white")
             console.print(
@@ -229,8 +245,12 @@ def watch(
             )
             if event.message:
                 console.print(f"  {event.message}")
-        elif event.kind.value == "started":
+        elif event.kind in {ScanEventKind.STARTED, ScanEventKind.PARSING}:
             console.print(f"[dim]Scanning {event.filename}...[/dim]")
+        elif event.kind in {ScanEventKind.FAILED, ScanEventKind.REJECTED}:
+            error_console.print(
+                f"\n[red]Failed scanning {event.filename or 'file'}: {event.message}[/red]"
+            )
 
     engine = LocalScanEngine(settings=settings)
     engine.subscribe(on_event)
@@ -251,11 +271,13 @@ def watch(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _collect(target: Path) -> list[Path]:
+def _collect(target: Path, *, recursive: bool = True) -> list[Path]:
     if target.is_file():
         return [target]
     if target.is_dir():
-        return sorted(p for p in target.rglob("*.pdf") if p.is_file())
+        pattern = "*.pdf"
+        files = target.rglob(pattern) if recursive else target.glob(pattern)
+        return sorted(p for p in files if p.is_file())
     return []
 
 

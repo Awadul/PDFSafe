@@ -39,28 +39,17 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-      - run: pip install -e ".[desktop]" pytest pytest-cov pytest-qt
-      - name: Run engine and analysis tests
+      - run: pip install -e ".[desktop]" pytest pytest-asyncio pytest-cov pytest-qt
+      - name: Run the test suite
         env:
           PDFSAFE_ENV: test
           PDFSAFE_AI_ENABLED: "false"
-        run: pytest tests/test_analysis.py tests/test_heuristics.py tests/test_local_runtime.py tests/test_storage_and_config.py -v
+        run: pytest -q
 
-      - name: Verify the desktop build imports without server extras
-        shell: pwsh
-        run: |
-          # A regression here means the frozen build would drag FastAPI,
-          # Celery or Postgres drivers into the installer.
-          python -c @"
-          import importlib, sys
-          for module in ('pdfsafe.local.engine', 'pdfsafe.local.database', 'pdfsafe.desktop.app'):
-              importlib.import_module(module)
-          forbidden = {'fastapi', 'celery', 'uvicorn', 'asyncpg', 'psycopg', 'boto3', 'alembic'}
-          leaked = forbidden & set(sys.modules)
-          if leaked:
-              raise SystemExit(f'Server dependencies leaked into the desktop import graph: {leaked}')
-          print('desktop import graph is clean')
-          "@
+      # Keeps the removed server stack from creeping back in and silently
+      # inflating the installer by tens of megabytes.
+      - name: Check the import graph
+        run: python tools/check_import_graph.py
 
   # Cross-platform check of the shared engine.
   test-engine-linux:

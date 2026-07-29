@@ -11,13 +11,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from pdfsafe import paths
 from pdfsafe.config import get_settings
 from pdfsafe.logging import get_logger
 from pdfsafe.schemas.analysis import YaraMatch
 
 logger = get_logger(__name__)
 
-BUNDLED_RULES_DIR = Path(__file__).parent / "rules"
+BUNDLED_RULES_DIR = paths.resource("analysis", "rules")
 _SCAN_TIMEOUT_SECONDS = 30
 _MAX_STRINGS_PER_MATCH = 20
 

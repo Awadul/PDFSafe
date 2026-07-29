@@ -40,7 +40,6 @@ class Environment(StrEnum):
 
 class StorageBackend(StrEnum):
     LOCAL = "local"
-    S3 = "s3"
 
 
 class AIProviderName(StrEnum):
@@ -164,11 +163,6 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------ storage ---
     storage_backend: StorageBackend = StorageBackend.LOCAL
     storage_local_path: Path = Field(default_factory=paths.storage_dir)
-    s3_bucket: str = ""
-    s3_endpoint_url: str = ""
-    s3_region: str = "us-east-1"
-    s3_access_key_id: SecretStr = SecretStr("")
-    s3_secret_access_key: SecretStr = SecretStr("")
 
     # ----------------------------------------------------------- database ---
     database_url: str = ""
@@ -176,21 +170,9 @@ class Settings(BaseSettings):
     database_pool_size: int = 5
     database_max_overflow: int = 10
 
-    # ---------------------------------------------- server target (opt-in) ---
-    api_host: str = "127.0.0.1"
-    api_port: int = 8000
-    api_keys: CommaList = Field(default_factory=list)
-    cors_origins: CommaList = Field(default_factory=list)
-    rate_limit_per_minute: int = 60
-    docs_enabled: bool = True
-    redis_url: str = "redis://localhost:6379/0"
-    celery_broker_url: str = "redis://localhost:6379/1"
-    celery_result_backend: str = "redis://localhost:6379/2"
-    celery_task_time_limit: int = 300
-    celery_task_soft_time_limit: int = 270
+    # ------------------------------------------------------------ watcher ---
+    #: Folder offered by default in the "scan folder" picker.
     watch_dir: Path = Field(default_factory=paths.watch_default_dir)
-    metrics_enabled: bool = False
-    metrics_path: str = "/metrics"
 
     # ------------------------------------------------------- validators ----
     @classmethod
@@ -210,9 +192,7 @@ class Settings(BaseSettings):
             file_secret_settings,
         )
 
-    @field_validator(
-        "api_keys", "cors_origins", "allowed_content_types", "watch_folders", mode="before"
-    )
+    @field_validator("allowed_content_types", "watch_folders", mode="before")
     @classmethod
     def _split_csv(cls, value: object) -> object:
         if isinstance(value, str):
@@ -239,9 +219,6 @@ class Settings(BaseSettings):
         if self.ai_escalate_min_score > self.ai_escalate_max_score:
             raise ValueError("ai_escalate_min_score must be <= ai_escalate_max_score")
 
-        if self.storage_backend is StorageBackend.S3 and not self.s3_bucket:
-            raise ValueError("s3_bucket is required when storage_backend='s3'")
-
         if (
             self.ai_enabled
             and self.ai_provider is AIProviderName.CUSTOM
@@ -251,22 +228,12 @@ class Settings(BaseSettings):
                 "custom_ai_base_url and custom_ai_model are required for the custom provider"
             )
 
-        if self.is_server_deployment:
-            if self.secret_key.get_secret_value() == "insecure-development-secret-key":
-                raise ValueError("PDFSAFE_SECRET_KEY must be set for a production server")
-            if not self.api_keys:
-                raise ValueError("PDFSAFE_API_KEYS must be set for a production server")
-
         return self
 
     # ------------------------------------------------------- convenience ----
     @property
     def is_desktop(self) -> bool:
         return self.env is Environment.DESKTOP
-
-    @property
-    def is_server_deployment(self) -> bool:
-        return self.env is Environment.PRODUCTION
 
     @property
     def is_testing(self) -> bool:
@@ -278,16 +245,8 @@ class Settings(BaseSettings):
 
     @property
     def sync_database_url(self) -> str:
-        """Synchronous driver URL (desktop, Celery workers, Alembic)."""
-        if self.uses_sqlite:
-            return self.database_url.replace("+aiosqlite", "")
-        return self.database_url.replace("+asyncpg", "+psycopg").replace(
-            "postgresql://", "postgresql+psycopg://"
-        )
-
-    @property
-    def auth_required(self) -> bool:
-        return bool(self.api_keys)
+        """Synchronous driver URL for SQLite database."""
+        return self.database_url
 
     # ------------------------------------------------------------ writing ---
     #: Fields the settings dialog is allowed to persist to config.json.

@@ -128,27 +128,19 @@ class DetailPanel(QWidget):
 
         self._rescan_button = QPushButton("Re-scan with AI")
         self._rescan_button.setObjectName("secondary")
-        self._rescan_button.clicked.connect(
-            lambda: self._scan and self.rescanRequested.emit(self._scan.id)
-        )
+        self._rescan_button.clicked.connect(self._on_rescan_clicked)
 
         self._mark_safe_button = QPushButton("Mark as safe")
         self._mark_safe_button.setObjectName("secondary")
-        self._mark_safe_button.clicked.connect(
-            lambda: self._scan and self.verdictOverridden.emit(self._scan.id, Verdict.CLEAN)
-        )
+        self._mark_safe_button.clicked.connect(self._on_mark_safe_clicked)
 
         self._folder_button = QPushButton("Show file")
         self._folder_button.setObjectName("secondary")
-        self._folder_button.clicked.connect(
-            lambda: self._scan and self.openFolderRequested.emit(self._scan.id)
-        )
+        self._folder_button.clicked.connect(self._on_folder_clicked)
 
         self._delete_button = QPushButton("Remove")
         self._delete_button.setObjectName("secondary")
-        self._delete_button.clicked.connect(
-            lambda: self._scan and self.deleteRequested.emit(self._scan.id)
-        )
+        self._delete_button.clicked.connect(self._on_delete_clicked)
 
         for button in (
             self._rescan_button,
@@ -159,6 +151,22 @@ class DetailPanel(QWidget):
             row.addWidget(button)
         row.addStretch()
         return row
+
+    def _on_rescan_clicked(self) -> None:
+        if self._scan:
+            self.rescanRequested.emit(self._scan.id)
+
+    def _on_mark_safe_clicked(self) -> None:
+        if self._scan:
+            self.verdictOverridden.emit(self._scan.id, Verdict.CLEAN)
+
+    def _on_folder_clicked(self) -> None:
+        if self._scan:
+            self.openFolderRequested.emit(self._scan.id)
+
+    def _on_delete_clicked(self) -> None:
+        if self._scan:
+            self.deleteRequested.emit(self._scan.id)
 
     # --------------------------------------------------------------- data --
     def clear(self) -> None:
@@ -198,9 +206,10 @@ class DetailPanel(QWidget):
     def _populate_indicators(self, scan: Any) -> None:
         while self._indicator_layout.count() > 1:
             item = self._indicator_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
+            if item is not None:
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
 
         indicators = sorted(scan.indicators, key=lambda i: i.weight, reverse=True)
         if not indicators:
@@ -211,9 +220,7 @@ class DetailPanel(QWidget):
             return
 
         for position, indicator in enumerate(indicators):
-            self._indicator_layout.insertWidget(
-                position, _IndicatorCard(indicator, self.palette_)
-            )
+            self._indicator_layout.insertWidget(position, _IndicatorCard(indicator, self.palette_))
 
     def _populate_structure(self, scan: Any) -> None:
         self._structure_tree.clear()
@@ -239,7 +246,9 @@ class DetailPanel(QWidget):
 
         self._add_list_branch("Embedded JavaScript", report.javascript, ("location", "length"))
         self._add_list_branch("Actions", report.actions, ("kind", "trigger", "target"))
-        self._add_list_branch("Embedded files", report.embedded_files, ("name", "size", "magic_bytes"))
+        self._add_list_branch(
+            "Embedded files", report.embedded_files, ("name", "size", "magic_bytes")
+        )
         self._add_list_branch("URLs", report.urls, ("url", "source"))
         self._add_list_branch("YARA matches", report.yara_matches, ("rule",))
 

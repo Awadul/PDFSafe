@@ -1,60 +1,20 @@
-"""Prometheus metrics registry.
+"""In-process counters.
 
-Metric objects are module-level singletons; importing this module twice in the
-same process is safe because prometheus_client de-duplicates by name only on
-registration, which happens exactly once here.
+These used to feed a Prometheus ``/metrics`` endpoint on the HTTP API. With the
+API gone nothing scrapes them, so the set has been reduced to the values the
+desktop build actually records, and :func:`snapshot` exposes them to the CLI and
+the About dialog. A counter nobody can read is just overhead.
 """
 
 from __future__ import annotations
 
-from prometheus_client import (
-    CONTENT_TYPE_LATEST,
-    CollectorRegistry,
-    Counter,
-    Gauge,
-    Histogram,
-    generate_latest,
-)
+from typing import Any
+
+from prometheus_client import CollectorRegistry, Counter, Histogram
 
 REGISTRY = CollectorRegistry(auto_describe=True)
 
-# --------------------------------------------------------------- ingestion ---
-uploads_total = Counter(
-    "pdfsafe_uploads_total",
-    "PDF uploads accepted by the API.",
-    labelnames=("source",),
-    registry=REGISTRY,
-)
-
-upload_bytes = Histogram(
-    "pdfsafe_upload_bytes",
-    "Size of accepted uploads in bytes.",
-    buckets=(1e4, 1e5, 5e5, 1e6, 5e6, 1e7, 2.5e7, 5e7),
-    registry=REGISTRY,
-)
-
-uploads_rejected_total = Counter(
-    "pdfsafe_uploads_rejected_total",
-    "Uploads rejected before analysis.",
-    labelnames=("reason",),
-    registry=REGISTRY,
-)
-
 # ---------------------------------------------------------------- analysis ---
-scans_total = Counter(
-    "pdfsafe_scans_total",
-    "Completed scans by final verdict.",
-    labelnames=("verdict", "decided_by"),
-    registry=REGISTRY,
-)
-
-scan_failures_total = Counter(
-    "pdfsafe_scan_failures_total",
-    "Scans that ended in an error state.",
-    labelnames=("stage",),
-    registry=REGISTRY,
-)
-
 analysis_duration_seconds = Histogram(
     "pdfsafe_analysis_duration_seconds",
     "Wall-clock duration of the static analysis stage.",
@@ -73,12 +33,6 @@ indicators_total = Counter(
     "pdfsafe_indicators_total",
     "Individual indicators raised during static analysis.",
     labelnames=("indicator", "severity"),
-    registry=REGISTRY,
-)
-
-scans_in_progress = Gauge(
-    "pdfsafe_scans_in_progress",
-    "Scans currently being processed by workers.",
     registry=REGISTRY,
 )
 
@@ -112,23 +66,30 @@ ai_tokens_total = Counter(
     registry=REGISTRY,
 )
 
-# --------------------------------------------------------------------- api ---
-http_requests_total = Counter(
-    "pdfsafe_http_requests_total",
-    "HTTP requests handled.",
-    labelnames=("method", "path", "status"),
-    registry=REGISTRY,
-)
 
-http_request_duration_seconds = Histogram(
-    "pdfsafe_http_request_duration_seconds",
-    "HTTP request latency.",
-    labelnames=("method", "path"),
-    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
-    registry=REGISTRY,
-)
+def snapshot() -> dict[str, Any]:
+    """Current counter values as plain data.
+
+    Only counters and histogram totals are reported - the bucket detail is not
+    useful without a time series behind it.
+    """
+    result: dict[str, Any] = {}
+    for metric in REGISTRY.collect():
+        for sample in metric.samples:
+            if not sample.name.endswith(("_total", "_sum", "_count")):
+                continue
+            key = sample.name
+            if sample.labels:
+                labels = ",".join(f"{k}={v}" for k, v in sorted(sample.labels.items()))
+                key = f"{key}{{{labels}}}"
+            result[key] = sample.value
+    return result
 
 
-def render_metrics() -> tuple[bytes, str]:
-    """Return the exposition payload and its content type."""
-    return generate_latest(REGISTRY), CONTENT_TYPE_LATEST
+def reset() -> None:
+    """Clear every counter. Used by tests; there is no runtime caller."""
+    for collector in list(REGISTRY._collector_to_names):
+        try:
+            collector._metrics.clear()  # type: ignore[attr-defined]
+        except AttributeError:
+            continue

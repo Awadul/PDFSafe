@@ -9,7 +9,6 @@ from PySide6.QtCore import QSettings, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -211,7 +210,9 @@ class MainWindow(QMainWindow):
             )
         else:
             self._status_ai.setText("AI: off")
-            self._status_ai.setToolTip("Everything is analysed locally. Nothing leaves this computer.")
+            self._status_ai.setToolTip(
+                "Everything is analysed locally. Nothing leaves this computer."
+            )
 
         depth = self.controller.queue_depth
         self._status_queue.setText(f"Queue: {depth}" if depth else "Idle")
@@ -375,9 +376,10 @@ class MainWindow(QMainWindow):
 
     def _on_duplicate(self, event: ScanEvent) -> None:
         self._status_message.setText(event.message)
-        if event.scan_id is not None:
+        scan_id = event.scan_id
+        if scan_id is not None:
             self._schedule_refresh()
-            QTimer.singleShot(300, lambda: self.table.select_scan(event.scan_id))
+            QTimer.singleShot(300, lambda: self.table.select_scan(scan_id))
 
     def _on_queue_changed(self, depth: int) -> None:
         self._status_queue.setText(f"Queue: {depth}" if depth else "Idle")

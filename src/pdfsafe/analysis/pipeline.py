@@ -80,9 +80,11 @@ def extract_evidence(
         if (finding := url_analysis.classify(target, source)) is not None
     ]
     js_urls: list[URLFinding] = []
-    for finding in javascript:
+    for js_item in javascript:
         js_urls.extend(
-            url_analysis.extract_from_bytes(finding.code.encode("utf-8", "ignore"), "javascript", 50)
+            url_analysis.extract_from_bytes(
+                js_item.code.encode("utf-8", "ignore"), "javascript", 50
+            )
         )
     all_urls = url_analysis.merge(action_urls, js_urls, raw_urls, limit=settings.extract_max_urls)
 

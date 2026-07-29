@@ -123,7 +123,11 @@ def build_evidence(
         notes.append(f"{len(result.urls) - MAX_URLS} additional URLs omitted")
 
     yara = [
-        {"rule": m.rule, "severity": m.meta.get("severity"), "description": m.meta.get("description")}
+        {
+            "rule": m.rule,
+            "severity": m.meta.get("severity"),
+            "description": m.meta.get("description"),
+        }
         for m in result.yara_matches[:MAX_YARA]
     ]
 
@@ -244,7 +248,7 @@ def _shrink(evidence: dict[str, Any], limit: int = 600) -> dict[str, Any]:
     shrunk: dict[str, Any] = {}
     for key, value in evidence.items():
         if isinstance(value, list) and len(value) > 5:
-            shrunk[key] = value[:5] + [f"...+{len(value) - 5} more"]
+            shrunk[key] = [*value[:5], f"...+{len(value) - 5} more"]
         elif isinstance(value, str) and len(value) > limit:
             shrunk[key] = value[:limit] + "..."
         else:

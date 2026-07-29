@@ -68,7 +68,9 @@ class CustomOpenAICompatibleProvider(LLMProvider):
         return bool(self.base_url and self.model)
 
     # ----------------------------------------------------------------- call --
-    def _invoke(self, system_prompt: str, user_prompt: str) -> tuple[dict[str, Any], dict[str, int]]:
+    def _invoke(
+        self, system_prompt: str, user_prompt: str
+    ) -> tuple[dict[str, Any], dict[str, int]]:
         if not self.is_configured():
             raise AINotConfiguredError(
                 "PDFSAFE_CUSTOM_AI_BASE_URL and PDFSAFE_CUSTOM_AI_MODEL must be set"
@@ -123,7 +125,9 @@ class CustomOpenAICompatibleProvider(LLMProvider):
                     f"Endpoint returned {response.status_code}: {response.text[:300]}"
                 )
             if response.status_code == 401 or response.status_code == 403:
-                raise AINotConfiguredError(f"Endpoint rejected the credentials ({response.status_code})")
+                raise AINotConfiguredError(
+                    f"Endpoint rejected the credentials ({response.status_code})"
+                )
             if response.status_code >= 400:
                 raise AIResponseError(
                     f"Endpoint returned {response.status_code}: {response.text[:300]}"

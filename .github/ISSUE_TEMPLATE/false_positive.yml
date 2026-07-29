@@ -1,0 +1,79 @@
+name: False positive
+description: PDFSafe flagged a document you know is safe
+title: "[FP] "
+labels: ["false-positive", "detection"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These reports are the most useful thing you can send us. The heuristic
+        weights have not been validated against a large corpus of real
+        documents, so every false positive tells us something we could not
+        otherwise learn.
+
+        **Please do not attach the document if it is confidential.** The
+        indicator list below is usually enough.
+
+  - type: textarea
+    id: indicators
+    attributes:
+      label: Indicators and score
+      description: >
+        From the desktop app, open the scan and copy the **Raw** tab. From the
+        CLI, run `pdfsafe scan <file> --json --no-ai`. Redact the filename and
+        path if you need to.
+      render: json
+    validations:
+      required: true
+
+  - type: input
+    id: document-type
+    attributes:
+      label: What kind of document is it?
+      placeholder: "Bank statement, e-signed contract, payroll form, scanned invoice…"
+    validations:
+      required: true
+
+  - type: input
+    id: origin
+    attributes:
+      label: Where did it come from?
+      description: Which tool or organisation produced it, if you know.
+      placeholder: "DocuSign, Adobe Acrobat, SAP export, a scanner…"
+
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: What verdict did it get?
+      options:
+        - low_risk
+        - suspicious
+        - malicious
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confidence
+    attributes:
+      label: How confident are you that it is safe?
+      options:
+        - label: I created this document myself, or it came from a source I control
+        - label: It came from a trusted organisation through an expected channel
+        - label: Another scanner cleared it
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: >
+        Especially useful: whether the document has forms, embedded
+        attachments, or was produced by an unusual tool.
+
+  - type: input
+    id: version
+    attributes:
+      label: PDFSafe version
+      description: "`pdfsafe version`, or Help → About"
+      placeholder: "0.1.0"
+    validations:
+      required: true

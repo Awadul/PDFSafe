@@ -18,7 +18,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -39,7 +39,7 @@ from pdfsafe.local.repository import ScanRepository
 from pdfsafe.local.sandbox import extract_isolated
 from pdfsafe.logging import bind_context, clear_context, get_logger
 from pdfsafe.storage import get_storage
-from pdfsafe.storage.local import LocalStorage
+from pdfsafe.storage.local import QUARANTINE_SUFFIX, LocalStorage
 
 logger = get_logger(__name__)
 
@@ -59,6 +59,26 @@ class ScanEventKind(StrEnum):
     REJECTED = "rejected"
     DUPLICATE = "duplicate"
     IDLE = "idle"
+
+
+@dataclass(slots=True)
+class QuarantineOutcome:
+    """What quarantine actually did, so the record can be undone later."""
+
+    quarantined: bool
+    vault_path: str | None = None
+    origin_path: str | None = None
+    origin_renamed_to: str | None = None
+
+    def details(self) -> dict[str, Any]:
+        """Fields merged into ``Scan.extra`` for the restore path and the UI."""
+        if not self.quarantined:
+            return {}
+        return {
+            "quarantine_vault_path": self.vault_path,
+            "origin_renamed_to": self.origin_renamed_to,
+            "origin_intact": self.origin_renamed_to is not None,
+        }
 
 
 @dataclass(slots=True)
@@ -254,9 +274,7 @@ class LocalScanEngine:
             if (scan_id := self.submit_file(path, source=source)) is not None
         ]
 
-    def submit_folder(
-        self, folder: str | Path, *, recursive: bool = False
-    ) -> list[uuid.UUID]:
+    def submit_folder(self, folder: str | Path, *, recursive: bool = False) -> list[uuid.UUID]:
         root = Path(folder)
         pattern = "**/*.pdf" if recursive else "*.pdf"
         return self.submit_files(
@@ -307,12 +325,15 @@ class LocalScanEngine:
                 repository = ScanRepository(session)
                 scan = repository.get(scan_id)
                 filename = scan.filename
+                origin_path = (scan.extra or {}).get("origin_path")
                 storage_key = scan.storage_key
                 repository.mark_analyzing(scan_id)
 
             self._emit(
                 ScanEvent(
-                    kind=ScanEventKind.PARSING, scan_id=scan_id, filename=filename,
+                    kind=ScanEventKind.PARSING,
+                    scan_id=scan_id,
+                    filename=filename,
                     message="Analysing structure",
                 )
             )
@@ -325,18 +346,33 @@ class LocalScanEngine:
 
             decision = self._decide(scan_id, analysis, filename, force_ai=force_ai)
 
-            quarantined = self._maybe_quarantine(decision.verdict, storage_key)
+            quarantine = self._maybe_quarantine(
+                decision.verdict, storage_key, origin_path=origin_path
+            )
             duration_ms = int((time.perf_counter() - started) * 1000)
 
             with self.database.session() as session:
                 repository = ScanRepository(session)
                 repository.save_result(
-                    scan_id, analysis, decision, duration_ms=duration_ms, quarantined=quarantined
+                    scan_id,
+                    analysis,
+                    decision,
+                    duration_ms=duration_ms,
+                    quarantined=quarantine.quarantined,
+                    quarantine_details=quarantine.details(),
                 )
-                if self.settings.history_limit:
+                orphaned = (
                     repository.prune(self.settings.history_limit)
+                    if self.settings.history_limit
+                    else []
+                )
 
-            if not self.settings.keep_scanned_copies and not quarantined:
+            # Pruned rows leave their stored blobs behind; reclaim them now that
+            # no scan record points at them.
+            for key in orphaned:
+                self._discard_copy(key)
+
+            if not self.settings.keep_scanned_copies and not quarantine.quarantined:
                 self._discard_copy(storage_key)
 
             self._emit(
@@ -350,7 +386,8 @@ class LocalScanEngine:
                     payload={
                         "decided_by": decision.decided_by.value,
                         "used_ai": decision.used_ai,
-                        "quarantined": quarantined,
+                        "quarantined": quarantine.quarantined,
+                        "origin_renamed_to": quarantine.origin_renamed_to,
                         "duration_ms": duration_ms,
                     },
                 )
@@ -396,27 +433,139 @@ class LocalScanEngine:
                 )
             )
 
-        return triage(
-            analysis.result, analysis.outcome, settings=self.settings, force_ai=force_ai
-        )
+        return triage(analysis.result, analysis.outcome, settings=self.settings, force_ai=force_ai)
 
     # ---------------------------------------------------------- quarantine --
-    def _maybe_quarantine(self, verdict: Verdict, storage_key: str) -> bool:
-        if verdict is not Verdict.MALICIOUS or not self.settings.quarantine_enabled:
-            return False
+    def _maybe_quarantine(
+        self, verdict: Verdict, storage_key: str, origin_path: str | None = None
+    ) -> QuarantineOutcome:
+        """Isolate a malicious file. Never raises.
 
+        Quarantine is a side effect; the verdict is the product. A locked file,
+        an antivirus holding a handle, a disconnected network drive or a full
+        disk must not discard an analysis that already completed - the user
+        would lose the answer and see only "failed".
+        """
+        if verdict is not Verdict.MALICIOUS or not self.settings.quarantine_enabled:
+            return QuarantineOutcome(quarantined=False)
+
+        try:
+            return self._quarantine(storage_key, origin_path)
+        except Exception:
+            logger.exception("quarantine_unexpected_error", key=storage_key)
+            return QuarantineOutcome(quarantined=False)
+
+    def _quarantine(self, storage_key: str, origin_path: str | None) -> QuarantineOutcome:
         storage = get_storage()
         if not isinstance(storage, LocalStorage):
-            return False
+            return QuarantineOutcome(quarantined=False)
 
         from pdfsafe import paths
 
+        # The two halves are attempted independently. The user's own copy is the
+        # one that can actually be opened by accident, so a failure to vault our
+        # internal copy must not leave it live.
+        vault_path: str | None = None
         try:
-            storage.quarantine(storage_key, paths.quarantine_dir())
-            return True
+            vault_path = str(storage.quarantine(storage_key, paths.quarantine_dir()))
         except Exception as exc:
-            logger.warning("quarantine_failed", key=storage_key, error=str(exc))
-            return False
+            logger.warning("vault_quarantine_failed", key=storage_key, error=str(exc))
+
+        renamed_to = self._neutralise_origin(origin_path) if origin_path else None
+
+        if vault_path is None and renamed_to is None:
+            logger.error("quarantine_failed_entirely", key=storage_key)
+            return QuarantineOutcome(quarantined=False)
+
+        return QuarantineOutcome(
+            quarantined=True,
+            vault_path=vault_path,
+            origin_path=origin_path,
+            origin_renamed_to=renamed_to,
+        )
+
+    def _neutralise_origin(self, origin_path: str) -> str | None:
+        """Rename the user's own copy so Windows will not open it.
+
+        Renaming rather than deleting is deliberate. The verdict comes from
+        heuristics whose false-positive rate has not been measured against a
+        real corpus, and destroying a document somebody needs is a worse
+        outcome than leaving a clearly-marked file they must rename back on
+        purpose. It also lets the user see the evidence and judge for
+        themselves before anything is discarded.
+        """
+        try:
+            origin = Path(origin_path)
+            if not origin.is_file():
+                return None
+
+            target = origin.with_name(origin.name + QUARANTINE_SUFFIX)
+            counter = 1
+            while target.exists():
+                target = origin.with_name(f"{origin.name}{QUARANTINE_SUFFIX}.{counter}")
+                counter += 1
+
+            origin.rename(target)
+            logger.info("origin_neutralised", original=str(origin), renamed=str(target))
+            return str(target)
+        except Exception as exc:
+            # Locked, read-only, on a disconnected share, or a path the OS will
+            # not accept. Best effort only: the vault copy is still quarantined
+            # and the verdict is still recorded.
+            logger.warning("origin_rename_failed", path=origin_path, error=str(exc))
+            return None
+
+    def release_from_quarantine(self, scan_id: uuid.UUID) -> bool:
+        """Undo a quarantine after an analyst marks the file safe.
+
+        Restores both copies: the vault object returns to normal storage and
+        the user's file loses its ``.quarantine`` suffix. Without this, "mark as
+        safe" would clear the database flag while the file stayed locked away.
+        """
+        from pdfsafe import paths
+
+        with self.database.session() as session:
+            scan = ScanRepository(session).find(scan_id)
+            if scan is None:
+                return False
+            extra = dict(scan.extra or {})
+            storage_key = scan.storage_key
+
+        renamed_to = extra.get("origin_renamed_to")
+        origin_path = extra.get("origin_path")
+        restored = False
+
+        if renamed_to and origin_path:
+            try:
+                current = Path(renamed_to)
+                original = Path(origin_path)
+                if current.is_file() and not original.exists():
+                    current.rename(original)
+                    restored = True
+                    logger.info("origin_restored", path=str(original))
+            except OSError as exc:
+                logger.warning("origin_restore_failed", path=renamed_to, error=str(exc))
+
+        storage = get_storage()
+        if isinstance(storage, LocalStorage):
+            vault = paths.quarantine_dir() / f"{storage_key}{QUARANTINE_SUFFIX}"
+            if vault.is_file():
+                try:
+                    storage.release(vault, storage_key)
+                    restored = True
+                except Exception as exc:
+                    logger.warning("vault_release_failed", key=storage_key, error=str(exc))
+
+        if restored:
+            with self.database.session() as session:
+                scan = ScanRepository(session).find(scan_id)
+                if scan is not None:
+                    scan.extra = {
+                        **(scan.extra or {}),
+                        "origin_renamed_to": None,
+                        "released_at": datetime.now(UTC).isoformat(),
+                    }
+        return restored
 
     def _discard_copy(self, storage_key: str) -> None:
         try:

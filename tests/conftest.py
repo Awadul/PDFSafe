@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -38,14 +38,11 @@ os.environ.setdefault("PDFSAFE_ANALYSIS_ISOLATION", "in_process")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip suites whose optional dependencies are not installed."""
-    try:
-        import fastapi  # noqa: F401
+    """Skip GUI tests when Qt is not installed.
 
-        has_server = True
-    except ImportError:
-        has_server = False
-
+    The engine and analysis suites run without PySide6, which keeps the fast
+    feedback loop free of a 77 MB dependency.
+    """
     try:
         import PySide6  # noqa: F401
 
@@ -53,14 +50,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     except ImportError:
         has_qt = False
 
-    skip_server = pytest.mark.skip(reason="server extras not installed (pip install '.[server]')")
-    skip_qt = pytest.mark.skip(reason="PySide6 not installed (pip install '.[desktop]')")
+    if has_qt:
+        return
 
+    skip_qt = pytest.mark.skip(reason="PySide6 not installed (pip install '.[desktop]')")
     for item in items:
-        path = str(item.fspath)
-        if not has_server and path.endswith("test_api.py"):
-            item.add_marker(skip_server)
-        if not has_qt and "gui" in item.keywords:
+        if "gui" in item.keywords:
             item.add_marker(skip_qt)
 
 
@@ -69,7 +64,7 @@ def _session_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
     """Point storage and the database at a temporary location."""
     root = tmp_path_factory.mktemp("pdfsafe")
     os.environ["PDFSAFE_STORAGE_LOCAL_PATH"] = str(root / "uploads")
-    os.environ["PDFSAFE_DATABASE_URL"] = f"sqlite+aiosqlite:///{root / 'pdfsafe.db'}"
+    os.environ["PDFSAFE_DATABASE_URL"] = f"sqlite:///{root / 'pdfsafe.db'}"
     os.environ["PDFSAFE_WATCH_DIR"] = str(root / "watch")
     yield
 
@@ -87,35 +82,6 @@ def storage_root(settings: Any) -> Path:
     path = Path(settings.storage_local_path)
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-# ---------------------------------------------------------------------------
-# Async database (server target)
-# ---------------------------------------------------------------------------
-@pytest.fixture
-async def db_engine(settings: Any) -> AsyncIterator[Any]:
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from pdfsafe.db import models  # noqa: F401  (registers tables)
-    from pdfsafe.db.base import Base
-
-    engine = create_async_engine(settings.database_url, future=True)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-    yield engine
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
-
-
-@pytest.fixture
-async def session(db_engine: Any) -> AsyncIterator[Any]:
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    factory = async_sessionmaker(bind=db_engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as db_session:
-        yield db_session
-        await db_session.rollback()
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +137,8 @@ class StubProvider:
 def stub_provider(monkeypatch: pytest.MonkeyPatch) -> StubProvider:
     """Replace the provider registry with a deterministic stub."""
     import sys
-    import pdfsafe.ai.triage
+
+    import pdfsafe.ai.triage  # noqa: F401
     from pdfsafe.ai import budget, registry
 
     triage_mod = sys.modules["pdfsafe.ai.triage"]

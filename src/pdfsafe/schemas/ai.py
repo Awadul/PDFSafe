@@ -19,7 +19,9 @@ class AIVerdict(BaseModel):
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
     verdict: Verdict = Field(description="Overall judgement for the document.")
-    risk_score: int = Field(ge=0, le=100, description="0 = certainly benign, 100 = certainly malicious.")
+    risk_score: int = Field(
+        ge=0, le=100, description="0 = certainly benign, 100 = certainly malicious."
+    )
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the verdict.")
     summary: str = Field(max_length=1000, description="One-paragraph analyst-facing summary.")
     reasoning: str = Field(default="", description="Which evidence drove the verdict.")

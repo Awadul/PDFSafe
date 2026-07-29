@@ -65,9 +65,7 @@ def set_api_key(provider: str, key: str) -> None:
     entry = ENTRY_NAMES.get(provider, f"{provider}_api_key")
     keyring = _keyring()
     if keyring is None:
-        raise CredentialStoreUnavailableError(
-            "No credential backend is available on this system."
-        )
+        raise CredentialStoreUnavailableError("No credential backend is available on this system.")
 
     if not key.strip():
         delete_api_key(provider)

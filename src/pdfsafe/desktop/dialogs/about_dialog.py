@@ -60,9 +60,7 @@ class AboutDialog(QDialog):
             button = QPushButton(label)
             button.setObjectName("secondary")
             button.clicked.connect(
-                lambda _=False, path=target: QDesktopServices.openUrl(
-                    QUrl.fromLocalFile(str(path))
-                )
+                lambda _=False, path=target: QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
             )
             actions.addWidget(button)
         actions.addStretch()
@@ -94,12 +92,13 @@ class AboutDialog(QDialog):
         import sys
 
         settings = get_settings()
+        ai_state = f"on - {settings.ai_provider.value}" if settings.ai_enabled else "off"
         lines = [
             f"Version:     {__version__}",
             f"Python:      {sys.version.split()[0]}",
             f"Platform:    {platform.platform()}",
             f"Frozen:      {paths.is_frozen()}",
-            f"AI:          {'on - ' + settings.ai_provider.value if settings.ai_enabled else 'off'}",
+            f"AI:          {ai_state}",
             f"Isolation:   {settings.analysis_isolation.value}",
             "",
         ]

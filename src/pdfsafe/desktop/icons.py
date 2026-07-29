@@ -111,7 +111,9 @@ def tray_icon(palette: Palette, *, alert: bool = False, busy: bool = False) -> Q
     painter.drawPath(_shield_path(rect))
 
     if alert:
-        painter.setPen(QPen(QColor("#ffffff"), size * 0.10, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.setPen(
+            QPen(QColor("#ffffff"), size * 0.10, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        )
         painter.drawLine(QPointF(size * 0.5, size * 0.30), QPointF(size * 0.5, size * 0.58))
         painter.drawPoint(QPointF(size * 0.5, size * 0.72))
 
@@ -148,7 +150,7 @@ def glyph_icon(character: str, palette: Palette, size: int = 20) -> QIcon:
 
 #: Toolbar glyphs, kept together so they are easy to swap for a real icon set.
 GLYPHS = {
-    "scan_files": "＋",
+    "scan_files": "＋",  # noqa: RUF001
     "scan_folder": "🗀",
     "rescan": "↻",
     "delete": "🗑",

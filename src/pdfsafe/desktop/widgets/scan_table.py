@@ -201,7 +201,7 @@ class ScanTableModel(QAbstractTableModel):
 class ScanTable(QTableView):
     """History view with sorting, filtering and a selection signal."""
 
-    scanSelected = Signal(object)   # uuid.UUID
+    scanSelected = Signal(object)  # uuid.UUID
     scanActivated = Signal(object)  # uuid.UUID
 
     def __init__(self, palette: Palette, parent: QWidget | None = None) -> None:

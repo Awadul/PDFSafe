@@ -1,0 +1,57 @@
+name: Missed detection
+description: PDFSafe cleared a document that is actually malicious
+title: "[FN] "
+labels: ["false-negative", "detection"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Do not attach live malware to this issue
+
+        Send the **SHA-256** instead, and a link to a public sample repository
+        if one exists. If the sample is not public and you believe we need it,
+        follow the private reporting process in
+        [SECURITY.md](../blob/main/SECURITY.md) instead.
+
+  - type: input
+    id: sha256
+    attributes:
+      label: SHA-256 of the sample
+    validations:
+      required: true
+
+  - type: input
+    id: reference
+    attributes:
+      label: Public reference
+      description: VirusTotal, MalwareBazaar, or a vendor write-up.
+      placeholder: "https://bazaar.abuse.ch/sample/..."
+
+  - type: textarea
+    id: mechanism
+    attributes:
+      label: What does the document actually do?
+      description: >
+        The mechanism matters more than the family name — that is what a
+        detection rule can key on.
+      placeholder: >
+        "Embedded JavaScript hidden in an object stream that PDFSafe does not
+        walk", "uses /RichMedia rather than /OpenAction", "the payload is in an
+        appended incremental update"…
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: What PDFSafe reported
+      description: "`pdfsafe scan <file> --json --no-ai`"
+      render: json
+
+  - type: input
+    id: version
+    attributes:
+      label: PDFSafe version
+      placeholder: "0.1.0"
+    validations:
+      required: true

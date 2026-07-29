@@ -74,7 +74,9 @@ class AnthropicProvider(LLMProvider):
         )
 
     # ----------------------------------------------------------------- call --
-    def _invoke(self, system_prompt: str, user_prompt: str) -> tuple[dict[str, Any], dict[str, int]]:
+    def _invoke(
+        self, system_prompt: str, user_prompt: str
+    ) -> tuple[dict[str, Any], dict[str, int]]:
         response = self._create_message(system_prompt, user_prompt)
 
         payload = self._extract_tool_input(response)
@@ -133,7 +135,10 @@ class AnthropicProvider(LLMProvider):
     @staticmethod
     def _extract_tool_input(response: Any) -> dict[str, Any]:
         for block in getattr(response, "content", []) or []:
-            if getattr(block, "type", None) == "tool_use" and getattr(block, "name", "") == TOOL_NAME:
+            if (
+                getattr(block, "type", None) == "tool_use"
+                and getattr(block, "name", "") == TOOL_NAME
+            ):
                 data = getattr(block, "input", None)
                 if isinstance(data, dict):
                     return data
@@ -149,7 +154,8 @@ class AnthropicProvider(LLMProvider):
             return None
         input_rate, output_rate = pricing
         return round(
-            (prompt_tokens / 1_000_000) * input_rate + (completion_tokens / 1_000_000) * output_rate,
+            (prompt_tokens / 1_000_000) * input_rate
+            + (completion_tokens / 1_000_000) * output_rate,
             6,
         )
 

@@ -23,7 +23,7 @@ structure and looks for exactly those capabilities, then scores what it finds.
 | **Verdict in about a second**  | Structural analysis, no signatures to download, no cloud round-trip     |
 | **Works offline**              | Every rule runs locally. With AI review off, nothing leaves the machine |
 | **Optional AI second opinion** | For files that are neither clearly safe nor clearly malicious           |
-| **Quarantine**                 | Malicious files are moved somewhere they cannot be opened by accident   |
+| **Quarantine**                 | Malicious files are renamed so they cannot open by accident — never deleted |
 | **Watch folders**              | New PDFs in Downloads are scanned automatically                         |
 | **Explorer integration**       | Right-click any PDF → _Scan with PDFSafe_                               |
 
@@ -67,7 +67,7 @@ What gets extracted:
 
 ### 2. Scoring
 
-About twenty weighted rules produce a 0–100 risk score. Weights combine with a
+Twenty-three weighted rules produce a 0–100 risk score. Weights combine with a
 **noisy-OR** rather than a sum, so several weak signals accumulate without any pair of
 them saturating the scale, and a `critical` finding imposes a floor.
 
@@ -94,6 +94,19 @@ the final score keeps 40% of the local weight so a confidently wrong model canno
 heavily-indicated file to zero.
 
 Thresholds are adjustable in Settings.
+
+### 4. Quarantine — defused, not destroyed
+
+A file judged malicious is **renamed, not deleted**: `invoice.pdf` becomes
+`invoice.pdf.quarantine`, so Windows no longer hands it to a PDF reader on a
+double-click. PDFSafe's own copy is moved to the quarantine folder and renamed the
+same way.
+
+Nothing is destroyed, deliberately. The verdict comes from heuristics whose
+false-positive rate has not been measured against a real corpus, and losing a
+document you needed is a worse outcome than having to rename one back. You can see
+exactly which indicators fired, judge for yourself, and click **Mark as safe** to
+restore the original name.
 
 ---
 
@@ -165,40 +178,27 @@ See [`packaging/README.md`](packaging/README.md). Short version:
 
 ```
 src/pdfsafe/
-  analysis/       parsing, JS/URL analysis, YARA, scoring       ← shared
-  ai/             provider abstraction, evidence, cost gate     ← shared
-  local/          SQLite, scan queue, sandbox, watcher, updater ← desktop
-  desktop/        PySide6 window, tray, dialogs                 ← desktop
-  api/ worker/    FastAPI + Celery                              ← server (optional)
-  web/            server dashboard templates                    ← server (optional)
-  cli.py          Typer CLI                                     ← both
+  analysis/       parsing, JS/URL analysis, YARA, scoring
+  ai/             provider abstraction, evidence packaging, cost gate
+  local/          SQLite, scan queue, sandbox, watcher, updater
+  desktop/        PySide6 window, tray, dialogs, widgets
+  schemas/        Pydantic contracts shared across the layers
+  db/             SQLAlchemy base and ORM models
+  storage/        content-addressed local storage and quarantine
+  cli.py          Typer CLI
 packaging/        PyInstaller spec, Inno Setup script, build pipeline
+tools/            icon rendering and developer utilities
 tests/            pytest suite with synthetic malicious fixtures
 ```
 
-The dependency split in `pyproject.toml` mirrors this: the desktop build installs
-`.[desktop]` and never pulls in FastAPI, Celery, Postgres drivers or boto3, which the
-PyInstaller spec also excludes explicitly.
+**Layering rule:** `desktop/` may import `local/`; `local/` may import `analysis/` and
+`ai/`; and nothing outside `desktop/` may import Qt. That keeps the engine testable
+headlessly and the CLI free of a GUI dependency.
 
-### Server target
-
-The same engine can run as a multi-user service — REST API, Celery workers, PostgreSQL,
-web dashboard, Docker Compose. It is not built or shipped as part of the desktop product
-and is not needed to use it:
-
-```bash
-pip install -e ".[server]"
-docker compose up -d --build
-```
-
-Only the persistence and queueing layers differ; `analysis/` and `ai/` are identical.
-
-|           | Desktop            | Server               |
-| --------- | ------------------ | -------------------- |
-| Database  | SQLite (WAL)       | PostgreSQL + Alembic |
-| Queue     | thread pool        | Celery + Redis       |
-| Isolation | child process      | container            |
-| Secrets   | Credential Manager | environment          |
+PDFSafe is a single-target desktop application. An earlier revision carried an optional
+FastAPI/Celery/PostgreSQL server alongside it; that was removed, because the duplicated
+orchestration silently drifted from the desktop engine twice and caused a real bug that
+no test caught.
 
 ### Testing
 
@@ -228,20 +228,37 @@ endpoint antivirus does not quarantine the source file.
 - **Detection, not prevention.** PDFSafe does not stop you opening a file it flagged; it
   quarantines and warns.
 
+### The one that matters most
+
+**The detection thresholds have not been validated against a corpus of real
+documents.** The 23 rule weights were chosen by judgement, not measured. Nobody
+yet knows what fraction of ordinary invoices, statements and signed contracts
+PDFSafe flags.
+
+If it flags something of yours that is plainly fine, that is a defect and we
+want the report — see [Contributing](CONTRIBUTING.md). Those reports are how this
+number gets established.
+
 ## Roadmap
 
+- Publish a measured false-positive rate against a benign corpus
 - OCR for image-only documents
 - Optional ClamAV / VirusTotal enrichment
 - Scheduled full-folder sweeps
 - Signed macOS build
 
-<!-- Run the GUI -->
+## Contributing
 
-.\.venv\Scripts\python.exe -m pdfsafe.desktop.app
+Bug reports, false positives and new detection rules are all welcome — start
+with [`CONTRIBUTING.md`](CONTRIBUTING.md). Security vulnerabilities go through
+[`SECURITY.md`](SECURITY.md), privately, never a public issue.
 
-<!-- Run the CLI with the directory to track -->
-.\.venv\Scripts\python.exe -m pdfsafe.cli watch "C:\Users\Home\Downloads"
+## Licence
 
-<!-- Complete the Project from scratch from demo -->
+PDFSafe is licensed under the [Apache License 2.0](LICENSE).
 
-.\.venv\Scripts\python.exe "C:\Users\Home\.gemini\antigravity-ide\brain\a50953fc-02f2-4948-a933-68cb31a0e588\scratch\reset_pdfsafe.py"
+The graphical interface links against **Qt via PySide6, which is LGPL-3.0**. The
+two are compatible because Qt is dynamically linked, and PDFSafe ships as a
+directory bundle with Qt as separate replaceable `.dll` files precisely so that
+LGPL relinking rights are preserved. The CLI links no Qt at all. Full
+third-party attribution is in [`NOTICE`](NOTICE).

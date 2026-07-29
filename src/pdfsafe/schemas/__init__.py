@@ -1,6 +1,6 @@
-"""Pydantic contracts shared across the API, worker and AI layers."""
+"""Pydantic contracts shared across the analysis, AI and desktop layers."""
 
-from pdfsafe.schemas.ai import AIVerdict, EvidenceBundle
+from pdfsafe.schemas.ai import AICallResult, AIVerdict, EvidenceBundle
 from pdfsafe.schemas.analysis import (
     ActionFinding,
     DocumentMetadata,
@@ -12,29 +12,18 @@ from pdfsafe.schemas.analysis import (
     URLFinding,
     YaraMatch,
 )
-from pdfsafe.schemas.scan import (
-    HealthResponse,
-    PaginatedScans,
-    ScanDetail,
-    ScanStats,
-    ScanSubmitResponse,
-    ScanSummary,
-)
+from pdfsafe.schemas.scan import ScanStats
 
 __all__ = [
+    "AICallResult",
     "AIVerdict",
     "ActionFinding",
     "DocumentMetadata",
     "EmbeddedFileFinding",
     "EvidenceBundle",
-    "HealthResponse",
     "IndicatorResult",
     "JavaScriptFinding",
-    "PaginatedScans",
-    "ScanDetail",
     "ScanStats",
-    "ScanSubmitResponse",
-    "ScanSummary",
     "StaticAnalysisResult",
     "StructureSummary",
     "URLFinding",

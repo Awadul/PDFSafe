@@ -19,7 +19,7 @@ from pdfsafe.schemas.ai import AIVerdict, EvidenceBundle
 
 TOOL_NAME = "submit_pdf_verdict"
 
-SYSTEM_PROMPT = """\
+SYSTEM_PROMPT = f"""\
 You are a malware analyst specialising in PDF-borne threats, working inside an \
 automated triage pipeline. A static analyser has already parsed the document and \
 extracted structured evidence. You never see the raw file - only this evidence.
@@ -57,8 +57,8 @@ the system useless, and clearing an obfuscated auto-executing script because \
 "no exploit was confirmed" defeats the purpose. Report what the evidence \
 supports.
 
-Respond only by calling the {tool} tool.\
-""".format(tool=TOOL_NAME)
+Respond only by calling the {TOOL_NAME} tool.\
+"""
 
 
 def verdict_json_schema() -> dict[str, Any]:
@@ -162,7 +162,9 @@ def build_user_prompt(evidence: EvidenceBundle) -> str:
         )
 
     if evidence.truncation_notes:
-        sections.append("## Truncation notes\n" + "\n".join(f"- {n}" for n in evidence.truncation_notes))
+        sections.append(
+            "## Truncation notes\n" + "\n".join(f"- {n}" for n in evidence.truncation_notes)
+        )
 
     sections.append(f"Now call {TOOL_NAME} with your verdict.")
     return "\n\n".join(sections)
@@ -172,7 +174,9 @@ def build_user_prompt(evidence: EvidenceBundle) -> str:
 # Rendering helpers
 # --------------------------------------------------------------------------
 def _kv(mapping: dict[str, Any]) -> str:
-    return "\n".join(f"{k}: {_scalar(v)}" for k, v in mapping.items() if v not in (None, "", [], {}))
+    return "\n".join(
+        f"{k}: {_scalar(v)}" for k, v in mapping.items() if v not in (None, "", [], {})
+    )
 
 
 def _scalar(value: Any) -> str:

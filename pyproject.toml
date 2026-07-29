@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "PDFSafe - desktop PDF malware scanner with static analysis and optional AI triage."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Proprietary" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "PDFSafe" }]
 keywords = ["pdf", "malware", "security", "static-analysis", "desktop"]
 classifiers = [
@@ -27,7 +27,7 @@ dependencies = [
     # configuration / validation
     "pydantic>=2.9.0",
     "pydantic-settings>=2.6.0",
-    # persistence (SQLite on the desktop, Postgres on the server target)
+    # persistence
     "sqlalchemy>=2.0.36",
     # pdf analysis
     "pikepdf>=9.4.0",
@@ -55,37 +55,19 @@ desktop = [
     "pywin32>=308; sys_platform == 'win32'",
 ]
 
-# Optional multi-user server deployment (Docker, Postgres, Celery, REST API).
-server = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.32.0",
-    "python-multipart>=0.0.17",
-    "jinja2>=3.1.4",
-    "anyio>=4.6.0",
-    "sqlalchemy[asyncio]>=2.0.36",
-    "alembic>=1.14.0",
-    "asyncpg>=0.30.0",
-    "psycopg[binary]>=3.2.0",
-    "greenlet>=3.1.0",
-    "celery[redis]>=5.4.0",
-    "redis>=5.2.0",
-    "boto3>=1.35.0",
-]
-
 build = [
     "pyinstaller>=6.11.0",
     "pillow>=11.0.0",
 ]
 
 dev = [
-    "pdfsafe[desktop,server,build]",
+    "pdfsafe[desktop,build]",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
     "pytest-qt>=4.4.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
-    "aiosqlite>=0.20.0",
     "pre-commit>=4.0.0",
 ]
 
@@ -115,9 +97,20 @@ ignore = ["S101", "B008", "S603", "S607"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "N802"]
-"migrations/**" = ["E501", "N999"]
 "packaging/**" = ["E501"]
-"src/pdfsafe/desktop/**" = ["N802"]  # Qt overrides use camelCase
+
+# Qt's API is camelCase. N802 covers overridden methods (rowCount, dropEvent),
+# N815 covers signal attributes (scanCompleted). Renaming either would break the
+# binding to Qt - these are not our naming choices to make.
+"src/pdfsafe/desktop/**" = ["N802", "N815"]
+
+# The parser walks attacker-controlled structure. Every exception is swallowed
+# on purpose so a malformed document degrades to a partial result rather than
+# failing the scan - a file that breaks the parser is itself a signal, recorded
+# in parse_errors. Logging each one individually would flood the log on a
+# deliberately hostile document with thousands of broken objects.
+# SIM118: the .keys() calls are on pikepdf Dictionary objects, not dicts.
+"src/pdfsafe/analysis/structure.py" = ["S110", "S112", "SIM105", "SIM118"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pdfsafe"]
@@ -135,8 +128,8 @@ exclude = ["migrations/", "build/", "dist/", "packaging/"]
 
 [[tool.mypy.overrides]]
 module = [
-    "yara", "pikepdf.*", "celery.*", "boto3", "botocore.*",
-    "keyring.*", "watchdog.*", "win32api", "win32con", "winreg",
+    "yara", "pikepdf.*", "keyring.*", "watchdog.*",
+    "win32api", "win32con", "winreg",
 ]
 ignore_missing_imports = true
 
@@ -150,14 +143,13 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "gui: requires a Qt display",
-    "server: requires the optional server extras",
     "llm: hits a real LLM provider",
 ]
 
 [tool.coverage.run]
 branch = true
 source = ["src/pdfsafe"]
-omit = ["*/migrations/*", "*/worker/celery_app.py", "*/desktop/*"]
+omit = ["*/desktop/*"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]

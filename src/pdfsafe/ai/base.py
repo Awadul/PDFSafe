@@ -31,7 +31,9 @@ class LLMProvider(ABC):
 
     # ------------------------------------------------------------ contract --
     @abstractmethod
-    def _invoke(self, system_prompt: str, user_prompt: str) -> tuple[dict[str, Any], dict[str, int]]:
+    def _invoke(
+        self, system_prompt: str, user_prompt: str
+    ) -> tuple[dict[str, Any], dict[str, int]]:
         """Call the backend.
 
         Returns:
@@ -152,5 +154,7 @@ class NullProvider(LLMProvider):
     def is_configured(self) -> bool:
         return True
 
-    def _invoke(self, system_prompt: str, user_prompt: str) -> tuple[dict[str, Any], dict[str, int]]:
+    def _invoke(
+        self, system_prompt: str, user_prompt: str
+    ) -> tuple[dict[str, Any], dict[str, int]]:
         raise AIProviderError("No AI provider is configured; heuristics-only mode.")

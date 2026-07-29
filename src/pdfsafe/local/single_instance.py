@@ -126,8 +126,10 @@ class SingleInstance:
                 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
                 kernel32.ReleaseMutex(self._handle)
                 kernel32.CloseHandle(self._handle)
-            except Exception:  # pragma: no cover
-                pass
+            except Exception as exc:  # pragma: no cover
+                # Windows frees the mutex on process exit anyway, so this is
+                # cosmetic - but a failure here would mask a handle leak.
+                logger.warning("mutex_release_failed", error=str(exc))
             self._handle = None
 
         if self._lock_file is not None:
@@ -189,7 +191,9 @@ def collect_handoffs() -> list[str]:
     for entry in sorted(drop_dir.glob("*.txt")):
         try:
             collected.extend(
-                line.strip() for line in entry.read_text(encoding="utf-8").splitlines() if line.strip()
+                line.strip()
+                for line in entry.read_text(encoding="utf-8").splitlines()
+                if line.strip()
             )
             entry.unlink(missing_ok=True)
         except OSError:  # pragma: no cover

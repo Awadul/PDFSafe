@@ -52,7 +52,9 @@ logger = get_logger(__name__)
 
 _OBJ_RE = re.compile(rb"\d+\s+\d+\s+obj\b")
 _STREAM_RE = re.compile(rb"\bstream\b")
-_FILTER_RE = re.compile(rb"/(FlateDecode|ASCIIHexDecode|ASCII85Decode|LZWDecode|RunLengthDecode|DCTDecode|CCITTFaxDecode|JBIG2Decode|JPXDecode|Crypt)")
+_FILTER_RE = re.compile(
+    rb"/(FlateDecode|ASCIIHexDecode|ASCII85Decode|LZWDecode|RunLengthDecode|DCTDecode|CCITTFaxDecode|JBIG2Decode|JPXDecode|Crypt)"
+)
 _HEX_OBFUSCATED_NAME_RE = re.compile(rb"/[A-Za-z0-9]*#[0-9A-Fa-f]{2}")
 
 #: Action dictionary keys that execute without user interaction.
@@ -229,7 +231,9 @@ def _walk(pdf: Any, parsed: ParsedDocument, max_objects: int, max_js_chars: int)
     if trailer is not None:
         try:
             structure.trailer_keys = [str(k) for k in trailer.keys()]
-            structure.has_xref_stream = "/XRefStm" in structure.trailer_keys or "/Type" in structure.trailer_keys
+            structure.has_xref_stream = (
+                "/XRefStm" in structure.trailer_keys or "/Type" in structure.trailer_keys
+            )
         except Exception:
             pass
 
@@ -245,9 +249,7 @@ def _walk(pdf: Any, parsed: ParsedDocument, max_objects: int, max_js_chars: int)
 
     # Derived flags
     structure.has_openaction = any(a.kind == "/OpenAction" for a in parsed.actions)
-    structure.has_names_javascript = any(
-        f.location.startswith("/Names") for f in parsed.javascript
-    )
+    structure.has_names_javascript = any(f.location.startswith("/Names") for f in parsed.javascript)
 
 
 def _inspect_root(root: Any, parsed: ParsedDocument, max_js_chars: int) -> None:
@@ -334,7 +336,16 @@ def _record_action_kind(action: Any, location: str, parsed: ParsedDocument) -> N
     subtype = safe_text(_dict_get(action, "/S"))
     if not subtype:
         return
-    if subtype in {"/Launch", "/URI", "/SubmitForm", "/GoToR", "/GoToE", "/Movie", "/Sound", "/Rendition"}:
+    if subtype in {
+        "/Launch",
+        "/URI",
+        "/SubmitForm",
+        "/GoToR",
+        "/GoToE",
+        "/Movie",
+        "/Sound",
+        "/Rendition",
+    }:
         target = safe_text(_action_target(action))
         parsed.actions.append(
             ActionFinding(
@@ -400,7 +411,9 @@ def _stringify_js(payload: Any) -> str:
     try:
         read_bytes = getattr(payload, "read_bytes", None)
         if callable(read_bytes):
-            return read_bytes().decode("utf-8", errors="replace")
+            res = read_bytes()
+            if isinstance(res, (bytes, bytearray)):
+                return res.decode("utf-8", errors="replace")
     except Exception:
         pass
     try:
@@ -503,7 +516,9 @@ def _collect_page_level(pdf: Any, parsed: ParsedDocument, max_js_chars: int) -> 
             parsed.parse_errors.append(f"annotation walk failed on page {index}: {exc}")
 
 
-def _inspect_annotation(annot: Any, location: str, parsed: ParsedDocument, max_js_chars: int) -> None:
+def _inspect_annotation(
+    annot: Any, location: str, parsed: ParsedDocument, max_js_chars: int
+) -> None:
     try:
         subtype = safe_text(_dict_get(annot, "/Subtype"))
         action = _dict_get(annot, "/A")

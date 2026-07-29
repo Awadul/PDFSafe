@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 class ScanController(QObject):
     """Qt-facing facade over :class:`LocalScanEngine`."""
 
-    scanQueued = Signal(object)       # ScanEvent
+    scanQueued = Signal(object)  # ScanEvent
     scanStarted = Signal(object)
     scanProgressed = Signal(object)
     scanCompleted = Signal(object)
@@ -87,10 +87,20 @@ class ScanController(QObject):
         self.historyChanged.emit()
 
     def set_verdict(self, scan_id: uuid.UUID, verdict: Verdict, note: str = "") -> None:
+        """Record an analyst override, releasing the file when it is cleared."""
         from pdfsafe.local.repository import ScanRepository
 
         with self.engine.database.session() as session:
             ScanRepository(session).set_review(scan_id, verdict, note)
+
+        # Clearing a verdict has to undo the filesystem side too, otherwise the
+        # database says "safe" while the file is still renamed and locked away.
+        if verdict is Verdict.CLEAN:
+            try:
+                self.engine.release_from_quarantine(scan_id)
+            except Exception:
+                logger.exception("quarantine_release_failed", scan_id=str(scan_id))
+
         self.historyChanged.emit()
 
     # -------------------------------------------------------------- reads --
@@ -139,7 +149,7 @@ class ScanController(QObject):
 class UpdateCheckThread(QThread):
     """Checks for updates without blocking the UI."""
 
-    updateAvailable = Signal(object)   # UpdateInfo
+    updateAvailable = Signal(object)  # UpdateInfo
     upToDate = Signal()
     checkFailed = Signal(str)
 
@@ -164,7 +174,7 @@ class UpdateCheckThread(QThread):
 class UpdateDownloadThread(QThread):
     """Downloads and verifies an update installer."""
 
-    progressed = Signal(int, int)      # downloaded, total
+    progressed = Signal(int, int)  # downloaded, total
     finishedOk = Signal(str, bool, str)  # path, signature_trusted, signature_detail
     failed = Signal(str)
 

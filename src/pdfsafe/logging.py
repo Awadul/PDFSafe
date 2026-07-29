@@ -145,8 +145,7 @@ def _build_file_handler(settings: Settings) -> logging.Handler | None:
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Return a bound structlog logger."""
-    configure_logging()
-    return structlog.stdlib.get_logger(name)  # type: ignore[no-any-return]
+    return structlog.stdlib.get_logger(name)
 
 
 def new_request_context(**values: Any) -> str:
@@ -165,6 +164,8 @@ def clear_context() -> None:
     clear_contextvars()
 
 
-def redact(mapping: MutableMapping[str, Any], keys: tuple[str, ...] = ("api_key", "token")) -> dict[str, Any]:
+def redact(
+    mapping: MutableMapping[str, Any], keys: tuple[str, ...] = ("api_key", "token")
+) -> dict[str, Any]:
     """Return a copy of ``mapping`` with sensitive keys masked."""
     return {k: ("***" if k in keys else v) for k, v in mapping.items()}

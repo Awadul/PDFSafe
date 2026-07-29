@@ -12,6 +12,7 @@ not the other way round.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 from functools import lru_cache
@@ -29,7 +30,7 @@ def is_frozen() -> bool:
 def bundle_dir() -> Path:
     """Directory containing bundled read-only resources."""
     if is_frozen():
-        return Path(sys._MEIPASS)  # type: ignore[attr-defined]  # noqa: SLF001
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
     return Path(__file__).resolve().parent
 
 
@@ -112,10 +113,10 @@ def resource(*parts: str) -> Path:
 
 
 def _ensure(path: Path) -> Path:
-    try:
+    # A read-only or missing profile must not stop the process from starting;
+    # the caller finds out when it tries to write.
+    with contextlib.suppress(OSError):
         path.mkdir(parents=True, exist_ok=True)
-    except OSError:  # pragma: no cover - read-only or missing profile
-        pass
     return path
 
 

@@ -6,15 +6,17 @@ import pytest
 
 from pdfsafe.analysis.heuristics import (
     CRITICAL_FLOOR,
-    HeuristicEngine,
     MALICIOUS_THRESHOLD,
     SUSPICIOUS_THRESHOLD,
+    HeuristicEngine,
 )
 from pdfsafe.enums import Severity, Verdict, max_severity, worst_verdict
 from pdfsafe.schemas.analysis import IndicatorResult
 
 
-def indicator(weight: int, severity: Severity = Severity.MEDIUM, code: str = "TEST") -> IndicatorResult:
+def indicator(
+    weight: int, severity: Severity = Severity.MEDIUM, code: str = "TEST"
+) -> IndicatorResult:
     return IndicatorResult(
         code=code, title="test indicator", severity=severity, weight=weight, category="test"
     )

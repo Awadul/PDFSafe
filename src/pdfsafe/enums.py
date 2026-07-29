@@ -55,9 +55,12 @@ class DecisionSource(StrEnum):
 
 
 class UploadSource(StrEnum):
-    """How the file entered the system."""
+    """How the file entered the system.
 
-    API = "api"
+    ``DASHBOARD`` covers the desktop window: drag-and-drop, the file picker and
+    the Explorer context-menu entry, all of which arrive through the same door.
+    """
+
     DASHBOARD = "dashboard"
     WATCH_FOLDER = "watch_folder"
     CLI = "cli"

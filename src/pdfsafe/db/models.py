@@ -21,7 +21,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
-    Enum as SAEnum,
     Float,
     ForeignKey,
     Index,
@@ -29,6 +28,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+)
+from sqlalchemy import (
+    Enum as SAEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -74,7 +76,7 @@ class Scan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # --- provenance ---
     source: Mapped[UploadSource] = mapped_column(
-        _enum(UploadSource, "upload_source"), default=UploadSource.API, nullable=False
+        _enum(UploadSource, "upload_source"), default=UploadSource.DASHBOARD, nullable=False
     )
     submitted_by: Mapped[str | None] = mapped_column(String(255))
     client_ip: Mapped[str | None] = mapped_column(String(64))
@@ -87,7 +89,9 @@ class Scan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     verdict: Mapped[Verdict] = mapped_column(
         _enum(Verdict, "verdict"), default=Verdict.UNKNOWN, nullable=False, index=True
     )
-    decided_by: Mapped[DecisionSource | None] = mapped_column(_enum(DecisionSource, "decision_source"))
+    decided_by: Mapped[DecisionSource | None] = mapped_column(
+        _enum(DecisionSource, "decision_source")
+    )
     risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float)
     summary: Mapped[str | None] = mapped_column(Text)
@@ -240,24 +244,8 @@ class AuditEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     scan: Mapped[Scan | None] = relationship(back_populates="events")
 
 
-class APIClient(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """An API consumer. Keys are stored as SHA-256 hashes, never in clear text."""
-
-    __tablename__ = "api_clients"
-
-    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
-    key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
-    key_prefix: Mapped[str] = mapped_column(String(12), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    rate_limit_per_minute: Mapped[int | None] = mapped_column(Integer)
-    scopes: Mapped[list[Any]] = mapped_column(default=list, nullable=False)
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
 __all__ = [
     "AIAssessment",
-    "APIClient",
     "AnalysisReport",
     "AuditEvent",
     "Indicator",

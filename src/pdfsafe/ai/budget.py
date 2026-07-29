@@ -1,53 +1,66 @@
-"""Daily token budget enforcement.
+"""Daily token budget.
 
-A Redis counter keyed by UTC date. When Redis is unavailable the budget check
-fails *open* (analysis continues) but logs loudly - a metrics outage should not
-stop malware triage.
+Counts are kept in the application's own SQLite database, in the same
+``pdfsafe_meta`` key/value table the schema version uses. Keys are namespaced by
+UTC date so the budget rolls over at midnight and old rows are trivially
+identifiable.
+
+This used to be a Redis counter, inherited from the server deployment. On a
+desktop install Redis is neither present nor installable, so the soft import
+always failed and the budget silently never applied - a configured limit that
+could not do anything. SQLite is already open, already durable, and already
+per-user.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from functools import lru_cache
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from pdfsafe.config import get_settings
 from pdfsafe.logging import get_logger
 
+if TYPE_CHECKING:  # pragma: no cover
+    from pdfsafe.local.database import LocalDatabase
+
 logger = get_logger(__name__)
 
-_KEY_PREFIX = "pdfsafe:ai:tokens"
-_TTL_SECONDS = 60 * 60 * 48
+KEY_PREFIX = "ai_tokens"
+#: Counters older than this are pruned on write.
+RETENTION_DAYS = 7
 
 
-@lru_cache(maxsize=1)
-def _redis() -> Any | None:
+def _database() -> LocalDatabase | None:
+    """Resolve the database lazily.
+
+    Imported inside the function so the AI package does not depend on the
+    desktop runtime at module level, and so a database problem degrades to
+    "no budget tracking" rather than an import error.
+    """
     try:
-        import redis
-    except ImportError:  # pragma: no cover
-        logger.warning("redis_unavailable", reason="redis package not installed")
-        return None
-    try:
-        client = redis.Redis.from_url(get_settings().redis_url, socket_timeout=2)
-        client.ping()
-        return client
-    except Exception as exc:
-        logger.warning("redis_connect_failed", error=str(exc))
+        from pdfsafe.local.database import get_database
+
+        return get_database()
+    except Exception as exc:  # pragma: no cover - unwritable profile, locked db
+        logger.warning("budget_database_unavailable", error=str(exc))
         return None
 
 
 def _key(when: datetime | None = None) -> str:
     day = (when or datetime.now(UTC)).strftime("%Y-%m-%d")
-    return f"{_KEY_PREFIX}:{day}"
+    return f"{KEY_PREFIX}:{day}"
 
 
 def tokens_used_today() -> int:
-    client = _redis()
-    if client is None:
+    """Tokens consumed since midnight UTC."""
+    database = _database()
+    if database is None:
         return 0
     try:
-        value = client.get(_key())
-        return int(value or 0)
+        raw = database.get_meta(_key())
+        return int(raw) if raw else 0
+    except (ValueError, TypeError):
+        return 0
     except Exception as exc:  # pragma: no cover
         logger.warning("budget_read_failed", error=str(exc))
         return 0
@@ -57,15 +70,12 @@ def record_usage(tokens: int) -> None:
     """Add ``tokens`` to today's counter."""
     if tokens <= 0:
         return
-    client = _redis()
-    if client is None:
+    database = _database()
+    if database is None:
         return
     try:
-        key = _key()
-        pipe = client.pipeline()
-        pipe.incrby(key, tokens)
-        pipe.expire(key, _TTL_SECONDS)
-        pipe.execute()
+        database.set_meta(_key(), str(tokens_used_today() + tokens))
+        _prune(database)
     except Exception as exc:  # pragma: no cover
         logger.warning("budget_write_failed", error=str(exc))
 
@@ -75,6 +85,7 @@ def has_budget() -> bool:
     limit = get_settings().ai_daily_token_budget
     if limit <= 0:
         return True
+
     used = tokens_used_today()
     if used >= limit:
         logger.warning("ai_budget_exhausted", used=used, limit=limit)
@@ -90,5 +101,26 @@ def remaining() -> int | None:
     return max(0, limit - tokens_used_today())
 
 
-def reset_cache() -> None:
-    _redis.cache_clear()
+def reset_today() -> None:
+    """Clear today's counter (used by the settings dialog and by tests)."""
+    database = _database()
+    if database is not None:
+        try:
+            database.set_meta(_key(), "0")
+        except Exception as exc:  # pragma: no cover
+            logger.warning("budget_reset_failed", error=str(exc))
+
+
+def _prune(database: LocalDatabase, keep_days: int = RETENTION_DAYS) -> None:
+    """Drop counters older than the retention window."""
+    from sqlalchemy import text
+
+    cutoff = (datetime.now(UTC) - timedelta(days=keep_days)).strftime("%Y-%m-%d")
+    try:
+        with database.engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM pdfsafe_meta WHERE key LIKE :prefix AND key < :cutoff"),
+                {"prefix": f"{KEY_PREFIX}:%", "cutoff": f"{KEY_PREFIX}:{cutoff}"},
+            )
+    except Exception:  # pragma: no cover - pruning is housekeeping only
+        return

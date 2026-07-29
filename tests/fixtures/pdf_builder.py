@@ -149,8 +149,7 @@ def embedded_executable_pdf() -> bytes:
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
             "<< /Names [(invoice.exe) 5 0 R] >>",
             "<< /Type /Filespec /F (invoice.exe) /UF (invoice.exe) /EF << /F 6 0 R >> >>",
-            f"<< /Type /EmbeddedFile /Length {len(payload)} >>\n"
-            f"stream\n{payload}\nendstream",
+            f"<< /Type /EmbeddedFile /Length {len(payload)} >>\nstream\n{payload}\nendstream",
         ]
     )
 

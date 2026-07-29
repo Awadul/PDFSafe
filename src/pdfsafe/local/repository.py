@@ -180,6 +180,7 @@ class ScanRepository:
         *,
         duration_ms: int,
         quarantined: bool = False,
+        quarantine_details: dict[str, Any] | None = None,
     ) -> Scan:
         """Persist the analysis report, indicators, AI assessment and verdict."""
         scan = self.get(scan_id)
@@ -211,6 +212,7 @@ class ScanRepository:
                 decision.escalation.reason if getattr(decision, "escalation", None) else None
             ),
             "analyzer_version": result.analyzer_version,
+            **(quarantine_details or {}),
         }
 
         self.add_event(
@@ -274,38 +276,65 @@ class ScanRepository:
         if scan is not None:
             self.session.delete(scan)
 
-    def prune(self, keep: int) -> int:
-        """Trim history to the newest ``keep`` rows. Returns the number removed."""
+    def prune(self, keep: int) -> list[str]:
+        """Trim history to the newest ``keep`` rows.
+
+        Returns the storage keys that no surviving scan references any more, so
+        the caller can delete the blobs. Without this the database self-trims
+        while disk usage grows without bound - deduplication means several rows
+        can share one key, so a blob is only orphaned once every row pointing at
+        it is gone.
+        """
         if keep <= 0:
-            return 0
-        total = self.count()
-        if total <= keep:
-            return 0
+            return []
+        if self.count() <= keep:
+            return []
 
         cutoff = self.session.execute(
             select(Scan.created_at).order_by(Scan.created_at.desc()).limit(1).offset(keep - 1)
         ).scalar_one_or_none()
         if cutoff is None:
-            return 0
+            return []
 
-        removed = self.session.execute(
-            delete(Scan).where(Scan.created_at < cutoff, Scan.quarantined.is_(False))
-        ).rowcount
-        if removed:
-            logger.info("history_pruned", removed=removed, keep=keep)
-        return int(removed or 0)
+        condition = (Scan.created_at < cutoff, Scan.quarantined.is_(False))
+
+        doomed_keys = set(
+            self.session.execute(select(Scan.storage_key).where(*condition)).scalars().all()
+        )
+        if not doomed_keys:
+            return []
+
+        res = self.session.execute(
+            delete(Scan).where(*condition).execution_options(synchronize_session=False)
+        )
+        removed = getattr(res, "rowcount", 0)
+        self.session.flush()
+
+        # Whatever keys are still attached to a surviving row must be kept. Read
+        # them all rather than filtering by the doomed set: history is bounded by
+        # ``keep``, so this is cheap, and it cannot go wrong the way an IN clause
+        # over a large key set can.
+        surviving = set(self.session.execute(select(Scan.storage_key)).scalars().all())
+        orphaned = sorted(doomed_keys - surviving)
+
+        logger.info("history_pruned", removed=int(removed or 0), keep=keep, orphaned=len(orphaned))
+        return orphaned
 
     def fail_stale(self, older_than: timedelta) -> int:
         """Fail scans left non-terminal by a crash or forced shutdown."""
         cutoff = datetime.now(UTC) - older_than
-        stale = self.session.execute(
-            select(Scan).where(
-                Scan.status.in_(
-                    [ScanStatus.PENDING, ScanStatus.ANALYZING, ScanStatus.AI_REVIEW]
-                ),
-                Scan.created_at < cutoff,
+        stale = (
+            self.session.execute(
+                select(Scan).where(
+                    Scan.status.in_(
+                        [ScanStatus.PENDING, ScanStatus.ANALYZING, ScanStatus.AI_REVIEW]
+                    ),
+                    Scan.created_at < cutoff,
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for scan in stale:
             scan.status = ScanStatus.FAILED
             scan.verdict = Verdict.UNKNOWN

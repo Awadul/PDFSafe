@@ -20,8 +20,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
 from pdfsafe.config import Settings, get_settings
-from pdfsafe.db.base import Base
 from pdfsafe.db import models  # noqa: F401  (importing registers the tables)
+from pdfsafe.db.base import Base
 from pdfsafe.logging import get_logger
 
 logger = get_logger(__name__)
@@ -142,11 +142,16 @@ class LocalDatabase:
             return 0
 
     # --------------------------------------------------------------- meta --
+    # The f-strings below interpolate _META_TABLE, a module constant, never
+    # anything derived from input. Both the key and the value are bound
+    # parameters. A table name cannot be a bind parameter in SQL, which is why
+    # the interpolation exists at all - hence the noqa rather than a rewrite.
     def get_meta(self, key: str) -> str | None:
         try:
             with self.engine.connect() as connection:
                 row = connection.execute(
-                    text(f"SELECT value FROM {_META_TABLE} WHERE key = :key"), {"key": key}
+                    text(f"SELECT value FROM {_META_TABLE} WHERE key = :key"),  # noqa: S608
+                    {"key": key},
                 ).first()
         except Exception:  # pragma: no cover - table not created yet
             return None
@@ -156,7 +161,7 @@ class LocalDatabase:
         with self.engine.begin() as connection:
             connection.execute(
                 text(
-                    f"INSERT INTO {_META_TABLE} (key, value) VALUES (:key, :value) "
+                    f"INSERT INTO {_META_TABLE} (key, value) VALUES (:key, :value) "  # noqa: S608
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
                 ),
                 {"key": key, "value": value},

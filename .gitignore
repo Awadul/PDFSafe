@@ -40,3 +40,7 @@ quarantine/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# IDE agent scratch files
+Memory.md
+.gemini/

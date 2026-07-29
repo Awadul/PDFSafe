@@ -18,6 +18,7 @@ for speed.
 
 from __future__ import annotations
 
+import contextlib
 import multiprocessing
 import sys
 from multiprocessing.connection import Connection
@@ -46,13 +47,11 @@ def _child_entry(connection: Connection, path: str, filename: str) -> None:
         data = Path(path).read_bytes()
         result = extract_evidence(data, filename=filename)
         connection.send(("ok", result.model_dump_json()))
-    except BaseException as exc:  # noqa: BLE001 - the point is to never escape
+    except BaseException as exc:
         connection.send(("error", f"{type(exc).__name__}: {exc}"))
     finally:
-        try:
+        with contextlib.suppress(Exception):
             connection.close()
-        except Exception:  # pragma: no cover
-            pass
 
 
 def extract_isolated(

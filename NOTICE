@@ -1,0 +1,61 @@
+PDFSafe
+Copyright 2026 PDFSafe contributors
+
+This product includes software developed by the PDFSafe contributors,
+licensed under the Apache License, Version 2.0.
+
+================================================================================
+Third-party components
+================================================================================
+
+PDFSafe is distributed as a bundle containing the following components, each
+under its own licence. Full licence texts are installed alongside the
+application in the `licenses/` directory.
+
+Apache License 2.0
+------------------
+  pikepdf            https://github.com/pikepdf/pikepdf
+  qpdf               https://github.com/qpdf/qpdf
+
+BSD 3-Clause
+------------
+  pypdf              https://github.com/py-pdf/pypdf
+  yara-python        https://github.com/VirusTotal/yara-python
+  YARA               https://github.com/VirusTotal/yara
+
+MIT
+---
+  SQLAlchemy         https://www.sqlalchemy.org/
+  Pydantic           https://docs.pydantic.dev/
+  structlog          https://www.structlog.org/
+  Typer              https://typer.tiangolo.com/
+  Rich               https://rich.readthedocs.io/
+  keyring            https://github.com/jaraco/keyring
+  httpx              https://www.python-httpx.org/
+  tenacity           https://github.com/jd/tenacity
+
+HPND / PIL
+----------
+  Pillow             https://python-pillow.org/
+
+================================================================================
+GNU Lesser General Public License v3.0 — IMPORTANT
+================================================================================
+
+  Qt for Python (PySide6)   https://www.qt.io/qt-for-python
+  Qt 6                      https://www.qt.io/
+
+PDFSafe's graphical interface links against Qt via PySide6, which is licensed
+under the LGPL v3. PDFSafe itself is Apache-2.0; the two are compatible because
+Qt is *dynamically* linked.
+
+To honour the LGPL, PDFSafe is distributed as a directory bundle (not a single
+packed executable) in which the Qt libraries are separate, replaceable `.dll`
+files under `_internal/PySide6/`. You may replace those libraries with your own
+build of Qt of the same major version and the application will use them.
+
+The corresponding source for Qt and PySide6 is available from the URLs above.
+If you cannot obtain it there, open an issue and we will provide it.
+
+Note: the command-line interface (`pdfsafe`) does not link Qt at all and is
+Apache-2.0 throughout.
