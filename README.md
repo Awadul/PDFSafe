@@ -230,7 +230,7 @@ no test caught.
 ### Testing
 
 ```powershell
-pytest -q                            # 147 tests
+pytest -q                            # 149 tests
 ruff check src tests                 # lint
 ruff format --check src tests        # formatting (a different tool from the above)
 mypy src                             # strict
