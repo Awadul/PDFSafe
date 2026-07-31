@@ -185,7 +185,7 @@ class DetailPanel(QWidget):
         self._set_actions_visible(True)
 
         self._banner.update_scan(scan)
-        self._summary.setText(scan.summary or "No summary available.")
+        self._summary.setText(self._summary_text(scan))
         self._populate_indicators(scan)
         self._populate_structure(scan)
         self._populate_ai(scan)
@@ -193,6 +193,15 @@ class DetailPanel(QWidget):
 
         self._mark_safe_button.setVisible(scan.verdict is not Verdict.CLEAN)
         self._rescan_button.setEnabled(scan.status.is_terminal)
+
+    @staticmethod
+    def _summary_text(scan: Any) -> str:
+        """One line explaining the verdict, or why there isn't one."""
+        if scan.summary:
+            return str(scan.summary)
+        if scan.status is ScanStatus.FAILED:
+            return "PDFSafe could not analyse this file, so no verdict was reached."
+        return "No summary available."
 
     def _set_actions_visible(self, visible: bool) -> None:
         for button in (
@@ -213,7 +222,22 @@ class DetailPanel(QWidget):
 
         indicators = sorted(scan.indicators, key=lambda i: i.weight, reverse=True)
         if not indicators:
-            empty = QLabel("No suspicious structures were detected in this document.")
+            # A scan that failed has no indicators for the same reason it has no
+            # score: nothing was examined. Saying "nothing suspicious was found"
+            # here would be read as "this file is fine", which is the one
+            # conclusion the app has no basis for. Say so plainly instead.
+            if scan.status is ScanStatus.FAILED:
+                reason = (scan.error_message or "").strip().splitlines()
+                text = (
+                    "This file could not be analysed, so it has not been checked "
+                    "for anything. Treat it as unknown rather than safe."
+                )
+                if reason:
+                    text += f"\n\nReason: {reason[0]}"
+            else:
+                text = "No suspicious structures were detected in this document."
+
+            empty = QLabel(text)
             empty.setObjectName("Muted")
             empty.setWordWrap(True)
             self._indicator_layout.insertWidget(0, empty)

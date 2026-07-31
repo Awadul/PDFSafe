@@ -237,9 +237,12 @@ def _install_excepthook() -> None:
                 "Please include that file if you report this.",
             )
         except Exception:  # pragma: no cover - Qt may already be gone
-            # The log line above already landed; showing the dialog is the
-            # optional half. Never raise from inside an excepthook.
-            print(f"PDFSafe crashed: {exc_type.__name__}: {exc}", file=sys.stderr)
+            # The log line above already landed on disk; the dialog is the
+            # optional half. A windowed build has no console (sys.stderr is
+            # None), so echoing there would silently do nothing - only attempt
+            # it when a stream actually exists. Never raise from an excepthook.
+            if sys.stderr is not None:
+                print(f"PDFSafe crashed: {exc_type.__name__}: {exc}", file=sys.stderr)
 
     sys.excepthook = handler
 

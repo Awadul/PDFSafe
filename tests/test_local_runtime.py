@@ -661,6 +661,130 @@ class TestCredentials:
         assert credentials.resolve_api_key("anthropic", "from-env") == "from-env"
 
 
+class TestHeadlessStartup:
+    """A frozen windowed build has no console: sys.stdout and sys.stderr are None.
+
+    Not closed streams - None. Anything that assumes a stream object raises
+    before the app can draw a window or write a log line, so the user sees
+    nothing happen at all, which is the hardest kind of failure to report.
+    Running from source never reproduces it, so it needs a test.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _restore_logging(self) -> Any:
+        yield
+        from pdfsafe.logging import configure_logging
+
+        # Put the root logger back for the rest of the session.
+        configure_logging(force=True)
+
+    def test_configure_logging_without_a_console(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys as system
+
+        from pdfsafe.logging import configure_logging
+
+        monkeypatch.setattr(system, "stderr", None)
+        monkeypatch.setattr(system, "stdout", None)
+
+        configure_logging(force=True)  # must not raise
+
+    def test_logging_still_works_without_a_console(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys as system
+
+        from pdfsafe.logging import configure_logging, get_logger
+
+        monkeypatch.setattr(system, "stderr", None)
+        monkeypatch.setattr(system, "stdout", None)
+        configure_logging(force=True)
+
+        # Emitting must not raise either - a NullHandler is acceptable, an
+        # exception is not.
+        get_logger("test").info("headless_smoke_test", detail="no console attached")
+
+    def test_ensure_std_streams_replaces_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys as system
+
+        from pdfsafe.logging import ensure_std_streams
+
+        monkeypatch.setattr(system, "stdout", None)
+        monkeypatch.setattr(system, "stderr", None)
+
+        ensure_std_streams()
+
+        assert system.stdout is not None
+        assert system.stderr is not None
+        # Writable, so a library that prints does not blow up either.
+        system.stdout.write("discarded\n")
+
+    def test_parser_child_survives_without_a_console(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pdfs: Any
+    ) -> None:
+        """Reproduces the bug that made every scan fail in the frozen build.
+
+        A spawned child inherits none of the parent's setup, so structlog is
+        still on its defaults and the first ``logger.bind`` resolves to
+        ``PrintLogger(sys.stdout)``. With no console attached that is ``None``
+        and the child dies inside structlog - which the parent then reported as
+        "Parsing failed", pointing the user at entirely the wrong subsystem.
+
+        Running from source cannot reproduce it by accident, so the conditions
+        are recreated here: default structlog config, no console, fresh process.
+        """
+        import sys as system
+
+        import structlog
+
+        from pdfsafe.local import sandbox
+
+        sample = tmp_path / "benign.pdf"
+        sample.write_bytes(pdfs.benign_pdf())
+
+        sent: list[tuple[str, str]] = []
+
+        class FakeConnection:
+            def send(self, value: tuple[str, str]) -> None:
+                sent.append(value)
+
+            def close(self) -> None:
+                pass
+
+        structlog.reset_defaults()
+        monkeypatch.setattr("pdfsafe.logging._CONFIGURED", False)
+        monkeypatch.setattr(system, "stdout", None)
+        monkeypatch.setattr(system, "stderr", None)
+
+        sandbox._child_entry(FakeConnection(), str(sample), "benign.pdf")  # type: ignore[arg-type]
+
+        assert sent, "the child sent nothing back"
+        status, payload = sent[0]
+        assert status == "ok", payload
+
+    def test_child_failure_carries_a_traceback(self, tmp_path: Path) -> None:
+        """A bare type and message is not enough to diagnose a child crash.
+
+        The child's stack dies with the process, so whatever it sends over the
+        pipe is all anyone - us or a user filing an issue - will ever see.
+        """
+        from pdfsafe.local import sandbox
+
+        sent: list[tuple[str, str]] = []
+
+        class FakeConnection:
+            def send(self, value: tuple[str, str]) -> None:
+                sent.append(value)
+
+            def close(self) -> None:
+                pass
+
+        missing = tmp_path / "not-here.pdf"
+        sandbox._child_entry(FakeConnection(), str(missing), "not-here.pdf")  # type: ignore[arg-type]
+
+        status, payload = sent[0]
+        assert status == "error"
+        assert "Traceback" in payload
+        assert "FileNotFoundError" in payload
+
+
 class TestPaths:
     def test_directories_are_under_the_user_profile(self) -> None:
         from pdfsafe import paths

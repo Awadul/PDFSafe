@@ -26,13 +26,33 @@ from pathlib import Path
 
 from pdfsafe.config import Isolation, Settings, get_settings
 from pdfsafe.exceptions import AnalysisError, AnalysisTimeoutError
-from pdfsafe.logging import get_logger
+from pdfsafe.logging import configure_logging, ensure_std_streams, get_logger
 from pdfsafe.schemas.analysis import StaticAnalysisResult
 
 logger = get_logger(__name__)
 
 #: Extra grace period given to the child to shut down after a timeout.
 _KILL_GRACE_SECONDS = 5.0
+
+
+def _bootstrap_child() -> None:
+    """Prepare the freshly spawned interpreter before any of our code runs.
+
+    ``spawn`` gives the child a brand new interpreter that has inherited none of
+    the parent's setup. In particular nothing has configured structlog here, so
+    the first ``logger.bind`` falls through to structlog's default
+    ``PrintLogger``, which writes to ``sys.stdout`` - and in a frozen windowed
+    build that is ``None``. The result is a crash inside structlog before the
+    parser has read a single byte, which looks for all the world like a parsing
+    failure.
+
+    File logging stays off: the child is short-lived and reports everything it
+    has to say back through the pipe, so letting it open the parent's rotating
+    handler would risk two processes rotating the same file at midnight for no
+    benefit.
+    """
+    ensure_std_streams()
+    configure_logging(to_file=False)
 
 
 def _child_entry(connection: Connection, path: str, filename: str) -> None:
@@ -42,13 +62,26 @@ def _child_entry(connection: Connection, path: str, filename: str) -> None:
     the child, and a nested function could not be pickled.
     """
     try:
+        _bootstrap_child()
+
         from pdfsafe.analysis.pipeline import extract_evidence
 
         data = Path(path).read_bytes()
         result = extract_evidence(data, filename=filename)
         connection.send(("ok", result.model_dump_json()))
     except BaseException as exc:
-        connection.send(("error", f"{type(exc).__name__}: {exc}"))
+        # Send the traceback, not just the exception text. The child is a
+        # separate process, so its stack is lost the moment it exits - without
+        # this, a failure in here surfaces as a bare type and message with no
+        # indication of which line produced it.
+        import traceback
+
+        connection.send(
+            (
+                "error",
+                f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}",
+            )
+        )
     finally:
         with contextlib.suppress(Exception):
             connection.close()
@@ -154,6 +187,9 @@ def install_freeze_support() -> None:
     worker body, which on Windows means the app launches itself repeatedly.
     Call it as the very first statement of every entry point.
     """
+    # Runs before Qt and before logging is configured, so anything imported
+    # between here and ``configure_logging`` still finds usable streams.
+    ensure_std_streams()
     multiprocessing.freeze_support()
     if sys.platform == "win32":
         multiprocessing.set_start_method("spawn", force=True)

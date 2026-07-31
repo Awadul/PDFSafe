@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from collections.abc import MutableMapping
 from typing import Any
@@ -31,6 +32,29 @@ def _drop_color_message(_: Any, __: str, event_dict: EventDict) -> EventDict:
     return event_dict
 
 
+def ensure_std_streams() -> None:
+    """Give the process real ``sys.stdout``/``sys.stderr`` objects.
+
+    A PyInstaller windowed build has no console, so Python sets both streams to
+    ``None`` rather than to a closed file. Most code never notices, because most
+    code never prints - but any library that reaches for a stream at import or
+    first use will raise, and the traceback points at the library rather than at
+    us. structlog's default ``PrintLogger`` does exactly this: it resolves
+    ``file or sys.stdout``, gets ``None``, and dies trying to take a weak
+    reference to it.
+
+    Pointing the streams at the null device costs nothing and removes the entire
+    class of failure. Our own code keeps its explicit ``is not None`` guards, so
+    this stays a safety net rather than a load-bearing assumption.
+    """
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is None:
+            # Deliberately never closed: it lives for the process lifetime and
+            # replacing a std stream with a closed file is worse than leaking a
+            # single descriptor.
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))  # noqa: SIM115
+
+
 def configure_logging(
     settings: Settings | None = None,
     *,
@@ -50,6 +74,8 @@ def configure_logging(
     if _CONFIGURED and not force:
         return
 
+    ensure_std_streams()
+
     settings = settings or get_settings()
     level = getattr(logging, settings.log_level)
 
@@ -64,10 +90,15 @@ def configure_logging(
         _add_service_context(settings),
     ]
 
+    # A frozen windowed build has no console attached, so sys.stderr is None -
+    # not a closed stream, None. Anything that assumes a stream object here
+    # crashes the application before it can draw a window or write a log line.
+    use_colours = sys.stderr is not None and sys.stderr.isatty()
+
     renderer: Processor = (
         structlog.processors.JSONRenderer()
         if settings.log_json
-        else structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
+        else structlog.dev.ConsoleRenderer(colors=use_colours)
     )
 
     structlog.configure(

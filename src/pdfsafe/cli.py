@@ -230,9 +230,7 @@ def watch(
     ai_colour = "green" if settings.ai_enabled else "red"
     ai_state = "ENABLED" if settings.ai_enabled else "DISABLED"
     console.print(f"  [bold]AI Review ({provider_name}):[/bold] [{ai_colour}]{ai_state}[/]")
-    console.print(
-        "  [dim]Drop any PDF into this folder to scan it. Press Ctrl+C to stop.[/dim]\n"
-    )
+    console.print("  [dim]Drop any PDF into this folder to scan it. Press Ctrl+C to stop.[/dim]\n")
 
     def on_event(event: ScanEvent) -> None:
         if event.kind is ScanEventKind.COMPLETED and event.verdict:
