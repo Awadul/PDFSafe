@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/your-org/pdfsafe/security/advisories/new
+    url: https://github.com/Awadul/PDFSafe/security/advisories/new
     about: Report privately. Never open a public issue for a security bug.
   - name: Question or idea
-    url: https://github.com/your-org/pdfsafe/discussions
+    url: https://github.com/Awadul/PDFSafe/discussions
     about: For anything that isn't a defect.

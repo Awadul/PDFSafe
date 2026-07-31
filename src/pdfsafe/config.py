@@ -155,9 +155,16 @@ class Settings(BaseSettings):
     custom_ai_max_tokens: int = 2048
 
     # ------------------------------------------------------------ updates ---
-    update_check_enabled: bool = True
+    # Off by default. There is no release feed yet, so leaving this on means
+    # every launch makes a DNS lookup that fails and logs an error - noise that
+    # trains people to ignore the log. It also means a fresh install opens no
+    # network connection at all until the user asks for one, which is the right
+    # default for a security tool. Turn it on in Settings once a feed exists.
+    update_check_enabled: bool = False
     update_check_interval_hours: int = 24
-    update_feed_url: str = "https://updates.pdfsafe.app/desktop/latest.json"
+    update_feed_url: str = (
+        "https://raw.githubusercontent.com/Awadul/PDFSafe/main/updates/latest.json"
+    )
     update_channel: Literal["stable", "beta"] = "stable"
 
     # ------------------------------------------------------------ storage ---

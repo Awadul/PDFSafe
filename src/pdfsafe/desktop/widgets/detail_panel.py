@@ -234,6 +234,11 @@ class DetailPanel(QWidget):
                 )
                 if reason:
                     text += f"\n\nReason: {reason[0]}"
+            elif scan.summary:
+                # The summary directly above already says nothing was found.
+                # Repeating it in different words reads like two separate
+                # checks, which overstates how much work was done.
+                return
             else:
                 text = "No suspicious structures were detected in this document."
 

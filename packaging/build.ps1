@@ -27,7 +27,7 @@
 param(
     [string]$CertificateThumbprint = $env:PDFSAFE_CERT_THUMBPRINT,
     [string]$TimestampUrl = "http://timestamp.digicert.com",
-    [string]$FeedBaseUrl = "https://updates.pdfsafe.app/desktop",
+    [string]$FeedBaseUrl = "https://github.com/Awadul/PDFSafe/releases/latest/download",
     [switch]$SkipInstaller,
     [switch]$Clean
 )
@@ -93,6 +93,18 @@ try {
     python -c "import PySide6" 2>$null
     if ($LASTEXITCODE -ne 0) { throw "PySide6 is missing. Run: pip install -e "".[desktop]""" }
 
+    # A copy of PDFSafe left running holds an open handle on every DLL in the
+    # bundle, so PyInstaller cannot replace dist/. It fails with an opaque
+    # "WinError 5: Access is denied" naming whichever .pyd it reached first,
+    # which says nothing about the real cause. This bites constantly because
+    # the app lives in the tray: closing its window does not close the app.
+    $running = @(Get-Process -Name "PDFSafe" -ErrorAction SilentlyContinue)
+    if ($running.Count -gt 0) {
+        Write-Note "Stopping $($running.Count) running PDFSafe process(es) - they lock the bundle"
+        $running | Stop-Process -Force
+        Start-Sleep -Milliseconds 750
+    }
+
     if ($Clean -and (Test-Path $Dist)) {
         Write-Note "Removing $Dist"
         Remove-Item $Dist -Recurse -Force
@@ -128,7 +140,14 @@ try {
     # -----------------------------------------------------------------------
     Write-Step "Building the executable"
     pyinstaller (Join-Path $Packaging "pdfsafe.spec") --noconfirm --distpath $Dist --workpath (Join-Path $Root "build")
-    if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
+    if ($LASTEXITCODE -ne 0) {
+        # "Access is denied" while clearing dist/ almost always means something
+        # still holds the old bundle open - a running copy we could not stop, a
+        # shell sitting inside dist/, or an antivirus scanning it.
+        throw ("PyInstaller failed. If the error mentions 'Access is denied' " +
+               "while removing $Dist, close any shell or Explorer window inside " +
+               "it and try again.")
+    }
 
     $exePath = Join-Path $AppDir "PDFSafe.exe"
     if (-not (Test-Path $exePath)) { throw "Expected $exePath but it was not produced" }

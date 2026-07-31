@@ -37,8 +37,14 @@ A clean verdict means "no dangerous structure found", not "definitely safe".
 
 ## Install
 
-Download `PDFSafe-x.y.z-setup.exe` and run it. No administrator rights required — it
-installs per-user and can be removed from Add/Remove Programs.
+> **Status: pre-release.** There is no published installer yet, and builds are
+> currently unsigned, so SmartScreen will warn. Build from source for now —
+> see [For developers](#for-developers).
+
+Once releases are published, download `PDFSafe-x.y.z-setup.exe` from
+[Releases](https://github.com/Awadul/PDFSafe/releases) and run it. No
+administrator rights required — it installs per-user and can be removed from
+Add/Remove Programs.
 
 Requires 64-bit Windows 10 1809 or later.
 
@@ -112,12 +118,15 @@ restore the original name.
 
 ## Privacy
 
-With AI review **off** (the default), no network connection is made except the update
-check, which sends only a version number.
+**A default install opens no network connection at all.** AI review and the update
+check are both off until you turn them on.
 
 With AI review **on**, ambiguous files produce one request to the provider you
 configured, containing the evidence summary described above. You can exclude the document
 text excerpt in Settings if your documents are sensitive.
+
+With the update check **on**, PDFSafe fetches a small JSON manifest and sends nothing
+but the request itself — no version, no identifier, no file information.
 
 Your API key is stored in **Windows Credential Manager**, encrypted against your user
 account. It is never written to the settings file or the logs. PDFSafe ships with no key
@@ -144,16 +153,24 @@ Uninstalling removes the program and offers to remove your history and quarantin
 
 ## For developers
 
+Every command below runs from the repository root and uses relative paths.
+
 ### Run from source
 
-```bash
+```powershell
+git clone https://github.com/Awadul/PDFSafe
+cd PDFSafe
 python -m venv .venv
-.venv\Scripts\activate
-pip install -e ".[dev]"
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev,desktop]"
 
-pdfsafe-desktop          # the GUI
-pdfsafe scan file.pdf    # the CLI
+pdfsafe-desktop                      # the GUI
+pdfsafe scan <file.pdf>              # the CLI
+pdfsafe scan <folder> --json --no-ai # bulk, machine-readable, no API calls
 ```
+
+Omit `desktop` from the extras if you only want the CLI — it skips the ~90 MB Qt
+download.
 
 System libraries for building `pikepdf` and `yara-python` from source:
 
@@ -166,13 +183,23 @@ brew install qpdf
 
 On Windows, install the prebuilt wheels rather than compiling.
 
-### Build the installer
-
-See [`packaging/README.md`](packaging/README.md). Short version:
+### Build the executable
 
 ```powershell
-.\packaging\build.ps1 -CertificateThumbprint <thumbprint> -Clean
+pip install -e ".[desktop,build]"
+.\packaging\build.ps1 -SkipInstaller          # executable only, into dist\PDFSafe
+.\packaging\build.ps1 -Clean                  # plus the Inno Setup installer
+.\packaging\build.ps1 -CertificateThumbprint <thumbprint> -Clean   # signed
 ```
+
+The script stops any running PDFSafe first — a copy left in the tray holds every
+DLL in `dist\` open and PyInstaller reports that as an unhelpful *Access is
+denied*. See [`packaging/README.md`](packaging/README.md) for signing, antivirus
+false positives and release hosting.
+
+Build with a python.org interpreter, not the Microsoft Store one: the Store build
+embeds a `python312.dll` from a per-user `WindowsApps` package that will not be
+present on the target machine.
 
 ### Layout
 
@@ -187,7 +214,7 @@ src/pdfsafe/
   storage/        content-addressed local storage and quarantine
   cli.py          Typer CLI
 packaging/        PyInstaller spec, Inno Setup script, build pipeline
-tools/            icon rendering and developer utilities
+tools/            make_icons.py, check_import_graph.py, reset_dev_state.ps1
 tests/            pytest suite with synthetic malicious fixtures
 ```
 
@@ -202,10 +229,23 @@ no test caught.
 
 ### Testing
 
-```bash
-make test    # pytest
-make lint    # ruff + mypy --strict
+```powershell
+pytest -q                            # 147 tests
+ruff check src tests                 # lint
+ruff format --check src tests        # formatting (a different tool from the above)
+mypy src                             # strict
+python tools\check_import_graph.py   # enforces the layering rule
 ```
+
+Between manual GUI tests, reset the app's state so the same files can be scanned
+again — quarantine renames the originals, so a second run is not the same test:
+
+```powershell
+.\tools\reset_dev_state.ps1 -TestFolder <folder-with-your-test-pdfs> -WhatIf
+```
+
+Drop `-WhatIf` to apply. It stops PDFSafe, clears the database, file store and
+quarantine vault, and restores `.quarantine` filenames.
 
 Fixtures in `tests/fixtures/pdf_builder.py` assemble PDFs byte by byte so the suite can
 produce structures a well-behaved writer would refuse to emit. Nothing there is

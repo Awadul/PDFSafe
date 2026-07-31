@@ -19,6 +19,12 @@ matters more to users than a UI tweak.
 - Daily AI token budget now persists in SQLite (`pdfsafe_meta`) instead of
   Redis. On a desktop install Redis was never present, so a configured budget
   silently had no effect.
+- **The update check now ships disabled.** No feed is published yet, so every
+  launch made a DNS lookup that failed and logged an error. A fresh install now
+  opens no network connection at all until the user asks for one.
+- A failed scan no longer renders as "no suspicious structures were detected".
+  Nothing was examined, so the honest report is that the file is unknown — the
+  previous wording read as a clean bill of health.
 
 ### Removed
 - The optional server target: FastAPI app, Celery workers, PostgreSQL/Alembic,
@@ -40,6 +46,23 @@ matters more to users than a UI tweak.
   import-time initialisation, so the log file was never created.
 - YARA rules and the parser sandbox now resolve correctly inside a PyInstaller
   bundle.
+- **Every scan failed in the frozen build.** A windowed PyInstaller executable
+  has no console, so `sys.stdout` and `sys.stderr` are `None`. The spawned parser
+  child never configured logging, fell back to structlog's default `PrintLogger`,
+  and died taking a weak reference to `None` — reported to the user as
+  "Parsing failed", which pointed at entirely the wrong subsystem.
+- The parser child now returns its traceback rather than just an exception type
+  and message. A child process's stack dies with it, so whatever crosses the pipe
+  is all anyone gets.
+- `configure_logging()` no longer assumes `sys.stderr` exists; a windowed build
+  crashed on startup before it could draw a window or write a log line.
+
+### Added (developer)
+- `tools/reset_dev_state.ps1` — clears scan history, file store and quarantine,
+  and restores `.quarantine` filenames so the same fixtures can be re-scanned.
+- `packaging/build.ps1` stops a running PDFSafe before building. A copy left in
+  the tray locks every DLL in `dist\`, which PyInstaller reports as an opaque
+  *Access is denied* on an arbitrary `.pyd`.
 
 ## [0.1.0] — unreleased
 

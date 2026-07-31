@@ -71,6 +71,30 @@ class TestSettings:
         with pytest.raises(ValueError, match="ai_escalate_min_score"):
             Settings()
 
+    def test_a_fresh_install_makes_no_network_connection(self) -> None:
+        """The README promises this, so something has to enforce it.
+
+        Both outbound features must be opt-in. Flipping either default to True
+        for convenience would quietly turn a scanner that works offline into one
+        that phones home on first launch.
+
+        This reads the declared field defaults rather than instantiating
+        Settings, because conftest.py forces both variables off for the suite -
+        an instantiated Settings would pass this test no matter what the shipped
+        default was.
+        """
+        from pdfsafe.config import Settings
+
+        assert Settings.model_fields["ai_enabled"].default is False
+        assert Settings.model_fields["update_check_enabled"].default is False
+
+    def test_update_feed_default_is_https(self) -> None:
+        # The updater refuses plaintext at runtime; the shipped default should
+        # never be the thing that has to be caught there.
+        from pdfsafe.config import Settings
+
+        assert Settings.model_fields["update_feed_url"].default.startswith("https://")
+
 
 class TestProviderRegistry:
     def test_builtin_providers_are_registered(self) -> None:

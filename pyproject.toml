@@ -9,11 +9,13 @@ description = "PDFSafe - desktop PDF malware scanner with static analysis and op
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
-authors = [{ name = "PDFSafe" }]
+authors = [{ name = "Awais Abdullah", email = "awaisabdullahm@gmail.com" }]
 keywords = ["pdf", "malware", "security", "static-analysis", "desktop"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Environment :: Win32 (MS Windows)",
     "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3.12",
     "Topic :: Security",
@@ -77,6 +79,13 @@ pdfsafe = "pdfsafe.cli:app"
 [project.gui-scripts]
 # Windowed entry point - no console window when launched from the shell.
 pdfsafe-desktop = "pdfsafe.desktop.app:main"
+
+[project.urls]
+Homepage = "https://github.com/Awadul/PDFSafe"
+Repository = "https://github.com/Awadul/PDFSafe"
+Issues = "https://github.com/Awadul/PDFSafe/issues"
+Changelog = "https://github.com/Awadul/PDFSafe/blob/main/CHANGELOG.md"
+Security = "https://github.com/Awadul/PDFSafe/blob/main/SECURITY.md"
 
 [tool.hatch.build.targets.wheel]
 # The YARA rules under analysis/rules are picked up automatically as package

@@ -33,7 +33,7 @@ discussions — and when representing the project publicly.
 
 ## Enforcement
 
-Report unacceptable behaviour to `conduct@pdfsafe.app`. Reports are handled
+Report unacceptable behaviour to `awaisabdullahm@gmail.com`. Reports are handled
 confidentially and reviewed within 7 days.
 
 Maintainers may remove comments, commits, code, and issues that violate this

@@ -8,8 +8,10 @@ user.
 
 **Do not open a public issue for a security bug.**
 
-Use GitHub's private reporting: **Security → Report a vulnerability** on this
-repository. If that is unavailable to you, email `security@pdfsafe.app`.
+Use GitHub's [private reporting][advisory]. If that is unavailable to you, email
+`awaisabdullahm@gmail.com` with `PDFSafe security` in the subject line.
+
+[advisory]: https://github.com/Awadul/PDFSafe/security/advisories/new
 
 Please include:
 
@@ -94,8 +96,9 @@ Knowing what PDFSafe *tries* to defend against makes reports easier to triage.
   destroyed, because the false-positive rate is not yet characterised.
 - **API keys live in the OS credential manager**, never in configuration files.
   PDFSafe ships with no key of its own.
-- **Network access is limited to** the update check and, when explicitly enabled,
-  the configured AI provider.
+- **PDFSafe makes no network connection unless you ask it to.** AI review and the
+  update check are both off by default; with both off the application never
+  opens a socket.
 
 ## Known limitations
 

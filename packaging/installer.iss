@@ -12,7 +12,7 @@
 
 #define MyAppName "PDFSafe"
 #define MyAppPublisher "PDFSafe"
-#define MyAppURL "https://pdfsafe.app"
+#define MyAppURL "https://github.com/Awadul/PDFSafe"
 #define MyAppExeName "PDFSafe.exe"
 #define SourceDir "..\dist\PDFSafe"
 

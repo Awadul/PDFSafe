@@ -22,13 +22,19 @@ confidential, please don't send it.
 
 ## Setup
 
-```bash
-git clone https://github.com/<your-fork>/pdfsafe
-cd pdfsafe
+Fork the repository, then:
+
+```powershell
+git clone https://github.com/<your-username>/PDFSafe
+cd PDFSafe
 python -m venv .venv
-.venv\Scripts\activate          # Linux/macOS: source .venv/bin/activate
-pip install -e ".[dev]"
+.\.venv\Scripts\Activate.ps1        # Linux/macOS: source .venv/bin/activate
+pip install -e ".[dev]"             # add ,desktop for the GUI: ".[dev,desktop]"
 ```
+
+Every command in this repository's documentation is written to run from the
+repository root, with relative paths. If a command starts with `.\` or `python
+tools\...`, you are in the right directory when it works.
 
 Building `pikepdf` and `yara-python` from source needs system libraries:
 
@@ -41,14 +47,36 @@ On Windows, install the prebuilt wheels rather than compiling.
 
 ### Before you push
 
-```bash
-pytest
+```powershell
+pytest -q
 ruff check src tests
-ruff format src tests
+ruff format --check src tests
 mypy src
+python tools\check_import_graph.py
 ```
 
-All four must pass. `mypy` runs in strict mode.
+All five must pass; `mypy` runs in strict mode. Note that `ruff format --check`
+reports formatting and `ruff check` reports lint findings — they are different
+tools, and running one is not running the other.
+
+`check_import_graph.py` enforces the layering rule described under *Project
+structure*. It exists because the removed server stack once crept back in and
+inflated the bundle unnoticed.
+
+### Resetting between manual tests
+
+Scanning a file twice is not a repeatable test: the first scan writes a history
+row and, on a malicious verdict, renames the original to `<name>.quarantine`.
+Put everything back with:
+
+```powershell
+.\tools\reset_dev_state.ps1 -TestFolder <folder-with-your-test-pdfs> -WhatIf
+.\tools\reset_dev_state.ps1 -TestFolder <folder-with-your-test-pdfs>
+```
+
+It stops a running PDFSafe, clears the database, file store and quarantine
+vault, and restores quarantined filenames. Point `-TestFolder` at a folder of
+test documents you control — restoring names makes those files openable again.
 
 ### Antivirus will delete your files
 

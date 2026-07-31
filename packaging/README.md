@@ -74,12 +74,16 @@ publisher identity across releases is what durably fixes this.
 
 ## Update hosting
 
-`build.ps1` writes `latest.json`. Publish it, along with the installer, at the
-URL in `PDFSAFE_UPDATE_FEED_URL`:
+**The update check ships disabled.** There is no published feed yet, and a check
+that fails on every launch trains people to ignore the log. Enable it once the
+manifest below is live.
+
+`build.ps1` writes `latest.json`. Commit it to `updates/latest.json` and attach
+the installer to a GitHub release, so the two URLs become:
 
 ```
-https://updates.pdfsafe.app/desktop/latest.json
-https://updates.pdfsafe.app/desktop/PDFSafe-0.1.0-setup.exe
+https://raw.githubusercontent.com/Awadul/PDFSafe/main/updates/latest.json
+https://github.com/Awadul/PDFSafe/releases/latest/download/PDFSafe-0.1.0-setup.exe
 ```
 
 The client requires HTTPS for both the manifest and the download, verifies the
@@ -91,7 +95,7 @@ ship an unsigned installer through this channel.
 ## Release checklist
 
 1. Bump `version` in `pyproject.toml`
-2. `make lint && make test`
+2. `ruff check src tests ; ruff format --check src tests ; mypy src ; pytest -q`
 3. `.\packaging\build.ps1 -CertificateThumbprint <thumbprint> -Clean`
 4. Install the artifact on a clean Windows VM and verify:
    - installs without an admin prompt

@@ -1,12 +1,16 @@
 """Update checking and download.
 
+Disabled by default: there is no published feed yet, and a check that fails on
+every launch is worse than no check at all. Enable it in Settings, or set
+``PDFSAFE_UPDATE_CHECK_ENABLED=true``, once ``updates/latest.json`` is published.
+
 The app polls a JSON manifest over HTTPS::
 
     {
       "version": "0.2.0",
       "released": "2026-08-01",
       "channel": "stable",
-      "url": "https://updates.pdfsafe.app/desktop/PDFSafe-0.2.0-setup.exe",
+      "url": "https://github.com/Awadul/PDFSafe/releases/download/v0.2.0/PDFSafe-0.2.0-setup.exe",
       "sha256": "…64 hex chars…",
       "size": 48210944,
       "minimum_version": "0.1.0",
