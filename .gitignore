@@ -50,12 +50,7 @@ docs-private/
 linkedin-post.md
 
 # --------------------------------------------------------------------------
-# Malware corpora. NEVER commit these.
-#
-# Publishing a sample archive from a public repository redistributes malware,
-# breaches the terms every corpus is shared under, and is a fast route to the
-# account being actioned. Benchmark results belong in the repo; the samples
-# they were computed from do not.
+# Malware corpora.
 # --------------------------------------------------------------------------
 Testing Folders/
 *.zip

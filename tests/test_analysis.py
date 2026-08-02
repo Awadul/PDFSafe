@@ -136,7 +136,7 @@ class TestYaraRules:
         files = self._rule_files()
         assert files, "no .yar files found - the rule set would silently be empty"
         for path in files:
-            yara.compile(filepath=str(path))  # raises on a syntax error
+            yara.compile(source=path.read_text(encoding="utf-8"))  # raises on a syntax error
 
     def test_bundled_rules_still_match_something(self, pdfs: Any) -> None:
         """Guards against rules that compile but have been narrowed into nothing.
@@ -146,7 +146,9 @@ class TestYaraRules:
         """
         yara = pytest.importorskip("yara")
 
-        rules = yara.compile(filepaths={p.stem: str(p) for p in self._rule_files()})
+        rules = yara.compile(
+            sources={p.stem: p.read_text(encoding="utf-8") for p in self._rule_files()}
+        )
         assert rules.match(data=pdfs.openaction_js_pdf()), (
             "no bundled rule matched an auto-executing obfuscated script"
         )

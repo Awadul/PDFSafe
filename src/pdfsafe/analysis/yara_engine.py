@@ -23,14 +23,17 @@ _SCAN_TIMEOUT_SECONDS = 30
 _MAX_STRINGS_PER_MATCH = 20
 
 
-def _rule_files(extra_dir: Path | None) -> dict[str, str]:
-    namespaces: dict[str, str] = {}
+def _rule_sources(extra_dir: Path | None) -> dict[str, str]:
+    sources: dict[str, str] = {}
     for directory in (BUNDLED_RULES_DIR, extra_dir):
         if directory is None or not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.yar")) + sorted(directory.glob("*.yara")):
-            namespaces[path.stem] = str(path)
-    return namespaces
+            try:
+                sources[path.stem] = path.read_text(encoding="utf-8")
+            except Exception as exc:
+                logger.warning("yara_read_failed", path=str(path), error=str(exc))
+    return sources
 
 
 @lru_cache(maxsize=1)
@@ -46,18 +49,18 @@ def get_rules() -> Any | None:
         logger.warning("yara_unavailable", reason="yara-python is not installed")
         return None
 
-    filepaths = _rule_files(settings.yara_rules_dir)
-    if not filepaths:
+    sources = _rule_sources(settings.yara_rules_dir)
+    if not sources:
         logger.warning("yara_no_rules", searched=str(BUNDLED_RULES_DIR))
         return None
 
     try:
-        rules = yara.compile(filepaths=filepaths)
+        rules = yara.compile(sources=sources)
     except Exception as exc:
         logger.error("yara_compile_failed", error=str(exc))
         return None
 
-    logger.info("yara_rules_loaded", namespaces=sorted(filepaths))
+    logger.info("yara_rules_loaded", namespaces=sorted(sources))
     return rules
 
 
