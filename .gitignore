@@ -60,9 +60,17 @@ linkedin-post.md
 Testing Folders/
 *.zip
 
-# Benchmark output. The summary belongs in the README as prose; the raw CSV is
-# tens of megabytes and lists sample paths. Note the wildcard - benchmark-v5/
-# and friends are not matched by a bare "benchmark/".
+# Benchmark output and working notes. The summary belongs in the README as
+# prose; the raw CSV lists sample filenames, which for a malware corpus means
+# malware hashes and local absolute paths.
+#
+# Two lessons encoded here: a bare "benchmark/" does not match "benchmark-v5/",
+# and scratch/ was swept into a public commit by `git add -A` because nothing
+# listed it. Any directory used for throwaway output needs a rule *before* it
+# is first written to, not after.
 benchmark*/
+scratch/
+*.results.csv
+benchmark_results.csv
 Testing Folders/
 *.zip
