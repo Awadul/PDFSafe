@@ -268,16 +268,34 @@ endpoint antivirus does not quarantine the source file.
 - **Detection, not prevention.** PDFSafe does not stop you opening a file it flagged; it
   quarantines and warns.
 
-### The one that matters most
+### Measured performance
 
-**The detection thresholds have not been validated against a corpus of real
-documents.** The 23 rule weights were chosen by judgement, not measured. Nobody
-yet knows what fraction of ordinary invoices, statements and signed contracts
-PDFSafe flags.
+Static engine only, no AI review, against **19,736 documents**: 10,627 malware
+samples (Contagio, pre-2011 and CVE-sorted) and 9,109 ordinary documents (US
+government forms, business reports, academic papers).
 
-If it flags something of yours that is plainly fine, that is a defect and we
-want the report — see [Contributing](CONTRIBUTING.md). Those reports are how this
-number gets established.
+| Threshold | What the user sees | Malware caught | Ordinary documents flagged |
+|---:|---|---:|---:|
+| ≥ 20 | `low risk` | **93.3%** | 10.9% |
+| ≥ 50 | `suspicious` | 81.6% | 6.7% |
+| ≥ 80 | `malicious` — quarantined | 79.2% | **0.47%** |
+
+At the quarantine threshold that is **99.5% precision**: of 8,458 files PDFSafe
+would rename, 8,415 are malware and 43 are not.
+
+Reproduce it with `python tools\benchmark_corpus.py <corpus-root>`.
+
+**Read the numbers honestly.** 0.47% is roughly 1 document in 200 — far above a
+commercial scanner, which is one reason a flagged file is renamed rather than
+deleted. The malware corpus is historical, so recall against 2020s samples is
+unknown and probably lower; techniques that parse cleanly are exactly what this
+corpus lacks. And 4% of detections come from `PDF_PARSE_FAILURE` alone, which
+means "this file is broken" rather than "this file is hostile".
+
+The remaining false positives cluster tightly: legacy US government publications
+that use `/Launch` to trigger printing, and Adobe rich-media sample documents.
+If PDFSafe flags something of yours that is plainly fine, that is a defect and
+we want the report — see [Contributing](CONTRIBUTING.md).
 
 ## Roadmap
 

@@ -1,13 +1,13 @@
 ; Inno Setup script for PDFSafe.
 ;
-; Build:  iscc /DMyAppVersion=0.1.0 packaging\installer.iss
+; Build:  iscc /DMyAppVersion=0.2.0 packaging\installer.iss
 ;
 ; Per-user install by design: no UAC prompt, no admin rights, and uninstalling
 ; removes everything the app wrote. A security tool that demands elevation to
 ; install is a worse security proposition than one that does not.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #define MyAppVersion "0.2.0"
 #endif
 
 #define MyAppName "PDFSafe"

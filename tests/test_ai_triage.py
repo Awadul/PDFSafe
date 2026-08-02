@@ -84,16 +84,83 @@ class TestTriage:
         assert decision.decided_by is DecisionSource.HEURISTICS
         assert decision.ai_call is None
 
-    def test_ai_verdict_leads_when_consulted(
+    def test_ai_leads_the_score_when_consulted(
         self, settings: Any, monkeypatch: pytest.MonkeyPatch, stub_provider: Any
     ) -> None:
+        """The model leads the *score*; the label is derived from it.
+
+        This previously asserted the final verdict equalled the model's label.
+        It no longer can: the model scores 90 and the heuristics 50, so the
+        blend is 74 and 74 is 'suspicious'. Reporting 'malicious' next to 74
+        would be exactly the inconsistency this fusion now prevents.
+        """
         monkeypatch.setattr(settings, "ai_enabled", True)
         result = StaticAnalysisResult(sha256="a" * 64, md5="b" * 32, file_size=1)
         decision = triage(result, outcome(50), settings=settings, force_ai=True)
 
         assert decision.decided_by is DecisionSource.HYBRID
-        assert decision.verdict is Verdict.MALICIOUS
         assert stub_provider.calls, "the provider should have been consulted"
+        # The model scored 90 against the heuristic 50, so it pulled the result up.
+        assert decision.risk_score > 50
+        assert decision.verdict is Verdict.SUSPICIOUS
+
+    @pytest.mark.parametrize(
+        ("ai_verdict", "ai_score", "heuristic_score"),
+        [
+            ("malicious", 90, 50),
+            ("malicious", 85, 10),
+            ("clean", 5, 45),
+            ("suspicious", 60, 70),
+            ("low_risk", 30, 20),
+            ("unknown", 50, 50),
+        ],
+    )
+    def test_verdict_always_matches_the_score(
+        self,
+        settings: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        stub_provider: Any,
+        ai_verdict: str,
+        ai_score: int,
+        heuristic_score: int,
+    ) -> None:
+        """The invariant the fusion bug broke.
+
+        PDFSafe once reported one file as 'malicious' at 64/100 and another as
+        'suspicious' at 70/100, because the label came from the model and the
+        number from a blend with nothing connecting them. The score is what the
+        interface shows in large type and what the history sorts by, and
+        quarantine keys off the verdict - so the two disagreeing meant the
+        visible number told users nothing about what the app would do.
+        """
+        from pdfsafe.analysis.heuristics import HeuristicEngine
+
+        monkeypatch.setattr(settings, "ai_enabled", True)
+        stub_provider._verdict = ai_verdict
+        stub_provider._risk_score = ai_score
+
+        result = StaticAnalysisResult(sha256="a" * 64, md5="b" * 32, file_size=1)
+        decision = triage(result, outcome(heuristic_score), settings=settings, force_ai=True)
+
+        assert decision.verdict is HeuristicEngine.to_verdict(decision.risk_score, [])
+
+    def test_reconcile_moves_the_score_into_the_labelled_band(self) -> None:
+        """A provider can return a label and a number that contradict each other.
+
+        Nothing in AIVerdict prevents it - the fields validate independently.
+        The label wins, because a model picks a category far more reliably than
+        it emits a calibrated number.
+        """
+        from pdfsafe.ai.triage import _reconcile_ai_score
+
+        contradictory = AIVerdict(verdict="malicious", risk_score=10, confidence=0.9, summary="x")
+        assert _reconcile_ai_score(contradictory) == 80
+
+        also_contradictory = AIVerdict(verdict="clean", risk_score=95, confidence=0.9, summary="x")
+        assert _reconcile_ai_score(also_contradictory) == 19
+
+        coherent = AIVerdict(verdict="suspicious", risk_score=65, confidence=0.9, summary="x")
+        assert _reconcile_ai_score(coherent) == 65
 
     def test_critical_indicator_blocks_a_clean_ai_verdict(
         self, settings: Any, monkeypatch: pytest.MonkeyPatch, stub_provider: Any

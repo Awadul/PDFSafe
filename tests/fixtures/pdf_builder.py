@@ -110,15 +110,72 @@ def launch_action_pdf(target: str | None = None) -> bytes:
 
 
 def obfuscated_names_pdf() -> bytes:
-    """Hex-escaped names: /J#61vaScript is /JavaScript to a reader."""
+    """Hex-escaped names: /J#61vaScript is /JavaScript to a reader.
+
+    Deliberately escapes many characters. A corpus of 9,109 ordinary documents
+    showed that a handful of hex escapes is normal producer output, so the rule
+    now needs several before it fires - and a fixture with two escapes would be
+    testing nothing.
+    """
     return _assemble(
         [
-            "<< /Type /Catalog /Pages 2 0 R /Op#65nAction 4 0 R >>",
+            "<< /T#79pe /C#61talog /P#61ges 2 0 R /Op#65nAction 4 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
-            "<< /S /J#61vaScript /J#53 (eval(unescape('%u4141'))) >>",
+            "<< /S /J#61vaScript /J#53 (eval(unescape('%u4141'))) "
+            "/N#61mes 5 0 R /A#41 << /O /J#61vaScript >> >>",
+            "<< /J#61vaScript << /N#61mes [] >> >>",
         ]
     )
+
+
+def interactive_form_pdf() -> bytes:
+    """An ordinary interactive form - the shape that caused false positives.
+
+    Government and enterprise forms combine field-validation JavaScript, an
+    /OpenAction, an AcroForm with XFA, and a few hex escapes from the producer.
+    Every one of those tripped a rule, and the noisy-OR pushed real IRS forms
+    past 95/100 into automatic quarantine.
+
+    The **three pages with real content** are load-bearing, not decoration. A
+    one-page document whose only payload is script is a dropper, and
+    ``PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT`` catches that at 50 - correctly, and
+    with the best discrimination of any rule here (66.5% of malware against
+    1.88% of ordinary documents). A tax return is not a one-page document, so a
+    fixture that is one would be asserting that malware ought to pass.
+
+    Nothing here is malicious. It must not be scored as though it were.
+    """
+    script = "this.getField('total').value = this.getField('subtotal').value * 1.2;"
+    pages = [
+        "Form 1040 - U.S. Individual Income Tax Return. Filing status: single.",
+        "Schedule 1 - Additional income and adjustments to income.",
+        "Schedule 2 - Additional taxes. Sign and date below before submitting.",
+    ]
+    streams = [f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET" for text in pages]
+
+    xfa = "<xdp:xdp xmlns:xdp='http://ns.adobe.com/xdp/'></xdp:xdp>"
+
+    # Object layout: 1 catalog, 2 page tree, 3-5 pages, 6 open action,
+    # 7-9 content streams, 10 font, 11 XFA.
+    objects = [
+        # The escaped 'c' in /AcroForm is the kind of stray hex escape ordinary
+        # producers emit - one, not a pattern.
+        "<< /Type /Catalog /Pages 2 0 R /OpenAction 6 0 R "
+        "/A#63roForm << /XFA 11 0 R /Fields [] >> >>",
+        "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>",
+    ]
+    objects += [
+        f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        f"/Resources << /Font << /F1 10 0 R >> >> /Contents {7 + index} 0 R >>"
+        for index in range(len(streams))
+    ]
+    objects.append(f"<< /S /JavaScript /JS ({script}) >>")
+    objects += [f"<< /Length {len(s)} >>\nstream\n{s}\nendstream" for s in streams]
+    objects.append("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    objects.append(f"<< /Length {len(xfa)} >>\nstream\n{xfa}\nendstream")
+
+    return _assemble(objects)
 
 
 def phishing_pdf(url: str = "http://185.220.101.7/verify") -> bytes:
@@ -185,6 +242,7 @@ ALL_BUILDERS = {
     "openaction_js": openaction_js_pdf,
     "launch_action": launch_action_pdf,
     "obfuscated_names": obfuscated_names_pdf,
+    "interactive_form": interactive_form_pdf,
     "phishing": phishing_pdf,
     "embedded_executable": embedded_executable_pdf,
     "appended_payload": appended_payload_pdf,

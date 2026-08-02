@@ -113,6 +113,45 @@ class TestJavaScriptAnalysis:
         assert finding.obfuscation_score < 0.45
 
 
+class TestYaraRules:
+    """The suite runs with YARA disabled, so nothing else checks these files.
+
+    ``yara_engine.get_rules()`` catches a compile failure, logs it and degrades
+    to a no-op. That is correct for a running application - one bad rule must
+    not take the pipeline down - but it means the entire signature layer can
+    disappear in silence. It did: a corpus run of 19,742 files once reported
+    zero YARA matches, and the drop looked like a tuning result rather than a
+    broken file.
+    """
+
+    @staticmethod
+    def _rule_files() -> list[Any]:
+        from pdfsafe import paths
+
+        return sorted(paths.resource("analysis", "rules").glob("*.yar"))
+
+    def test_bundled_rules_compile(self) -> None:
+        yara = pytest.importorskip("yara")
+
+        files = self._rule_files()
+        assert files, "no .yar files found - the rule set would silently be empty"
+        for path in files:
+            yara.compile(filepath=str(path))  # raises on a syntax error
+
+    def test_bundled_rules_still_match_something(self, pdfs: Any) -> None:
+        """Guards against rules that compile but have been narrowed into nothing.
+
+        A condition tightened one step too far leaves a rule set that loads
+        cleanly and never fires, which is indistinguishable from working.
+        """
+        yara = pytest.importorskip("yara")
+
+        rules = yara.compile(filepaths={p.stem: str(p) for p in self._rule_files()})
+        assert rules.match(data=pdfs.openaction_js_pdf()), (
+            "no bundled rule matched an auto-executing obfuscated script"
+        )
+
+
 class TestURLAnalysis:
     def test_classifies_ip_literal(self) -> None:
         finding = url_analysis.classify("http://185.220.101.7/verify", "annotation")
@@ -170,6 +209,55 @@ class TestPipeline:
         assert "PDF_JS_AUTO_EXEC" in codes
         assert output.outcome.score >= 50
 
+    def test_auto_executing_script_keeps_both_indicators(self, pdfs: Any) -> None:
+        """Deliberate redundancy, kept because removing it was measured.
+
+        PDF_JS_PRESENT and PDF_JS_AUTO_EXEC describe the same JavaScript, and
+        suppressing the first looks like the right call - the noisy-OR assumes
+        independent evidence. Measured over 726 malware samples it cost 98 true
+        positives to remove 68 false positives, dropping recall at the
+        quarantine threshold from 83.5% to 70.0%.
+
+        Scores cluster just above 80, so subtracting a constant from every
+        JavaScript-bearing document pushes far more malware off the edge than it
+        does ordinary files. Do not "tidy" this without re-running
+        tools/benchmark_corpus.py.
+        """
+        codes = {i.code for i in analyze_bytes(pdfs.openaction_js_pdf()).outcome.indicators}
+        assert {"PDF_JS_PRESENT", "PDF_JS_AUTO_EXEC"} <= codes
+
+    def test_a_one_page_form_with_text_is_not_treated_as_a_dropper(self) -> None:
+        """PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT needs the page to be empty.
+
+        The rule is named "nearly empty document" but only checked page count,
+        so every single-page form carrying script tripped it. Dozens of US tax
+        forms are exactly that shape.
+        """
+        from pdfsafe.analysis.heuristics import r_no_pages_but_active
+        from pdfsafe.schemas.analysis import (
+            JavaScriptFinding,
+            StaticAnalysisResult,
+            StructureSummary,
+        )
+
+        def build(text: str) -> StaticAnalysisResult:
+            return StaticAnalysisResult(
+                sha256="a" * 64,
+                md5="b" * 32,
+                file_size=2048,
+                structure=StructureSummary(page_count=1),
+                javascript=[JavaScriptFinding(location="/OpenAction", code="x", length=1)],
+                text_excerpt=text,
+            )
+
+        form = build("Form 1122 - Authorization and Consent. " * 20)
+        dropper = build("")
+
+        assert list(r_no_pages_but_active(form)) == []
+        assert [i.code for i in r_no_pages_but_active(dropper)] == [
+            "PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT"
+        ]
+
     def test_launch_action_is_critical(self, pdfs: Any) -> None:
         output = analyze_bytes(pdfs.launch_action_pdf(), filename="launch.pdf")
         codes = {i.code for i in output.outcome.indicators}
@@ -179,6 +267,41 @@ class TestPipeline:
     def test_name_obfuscation_detected(self, pdfs: Any) -> None:
         output = analyze_bytes(pdfs.obfuscated_names_pdf(), filename="obf.pdf")
         assert "PDF_NAME_OBFUSCATION" in {i.code for i in output.outcome.indicators}
+
+    def test_an_ordinary_interactive_form_is_not_quarantined(self, pdfs: Any) -> None:
+        """The regression that a 9,109-document corpus exposed.
+
+        Before calibration, 450 ordinary documents - 4.94% of the benign corpus,
+        including live IRS tax forms - scored 80 or above and would have been
+        renamed on the user's disk without being asked. The cause was four rules
+        firing on one document and compounding: form JavaScript, an
+        /OpenAction, XFA, and producer hex escapes.
+
+        A form is allowed to look like a form.
+        """
+        output = analyze_bytes(pdfs.interactive_form_pdf(), filename="f1040.pdf")
+        assert output.outcome.score < 80, (
+            f"scored {output.outcome.score}: {sorted(i.code for i in output.outcome.indicators)}"
+        )
+
+    def test_zero_weight_indicators_do_not_move_the_score(self, pdfs: Any) -> None:
+        """XFA and incremental updates are reported but must not accumulate.
+
+        Both were measured as *more* common in benign documents than malicious
+        ones. They stay visible for a reviewer and for the AI evidence bundle,
+        and contribute nothing to the number.
+        """
+        from pdfsafe.analysis.heuristics import HeuristicEngine
+        from pdfsafe.enums import Severity
+        from pdfsafe.schemas.analysis import IndicatorResult
+
+        zero = [
+            IndicatorResult(code="PDF_XFA_FORM", title="x", severity=Severity.INFO, weight=0),
+            IndicatorResult(
+                code="PDF_MANY_INCREMENTAL_UPDATES", title="y", severity=Severity.INFO, weight=0
+            ),
+        ]
+        assert HeuristicEngine.combine(zero) == 0
 
     def test_appended_payload_detected(self, pdfs: Any) -> None:
         output = analyze_bytes(pdfs.appended_payload_pdf(), filename="appended.pdf")

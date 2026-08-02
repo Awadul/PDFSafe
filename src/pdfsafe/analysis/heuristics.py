@@ -13,6 +13,25 @@ Weights are combined with a *noisy-OR* rather than a plain sum::
 Independent weak signals therefore accumulate without a handful of them
 saturating the scale, and no single rule can push the score to 100 unless it is
 genuinely conclusive. A ``CRITICAL`` indicator additionally imposes a floor.
+
+Calibration
+-----------
+Weights were originally set by judgement. Several have since been corrected
+against a corpus of **9,109 real documents** (US government forms, business
+reports, academic papers) using ``tools/benchmark_corpus.py``.
+
+The measure that matters for a rule is not how often it fires on malware but the
+ratio between the two rates. A rule that appears in 25% of malware and 20% of
+ordinary documents is close to worthless however alarming it sounds, and three
+rules here were in that state or worse - two of them fired *more* often on
+benign documents than on malicious ones, so they were adding weight in the wrong
+direction.
+
+Where a rule's weight cites a measurement, the comment says so. Where it does
+not, the weight is still a judgement call and should be treated as provisional.
+Rules are only ever weakened on the strength of the benign corpus, which is
+complete; the malware corpus available at the time was not, so it cannot support
+lowering a weight on a technique known to be dangerous.
 """
 
 from __future__ import annotations
@@ -44,6 +63,20 @@ LOW_RISK_THRESHOLD = 20
 #: A single CRITICAL finding cannot score below this.
 CRITICAL_FLOOR = 75
 HIGH_FLOOR = 45
+
+# --------------------------------------------------------------------------
+# Name obfuscation
+#
+# Hex-escaped name objects (/J#61vaScript) are legal PDF and ordinary producers
+# emit them, so a few escapes mean nothing. These cutoffs are estimates pending
+# a measured distribution - see r_name_obfuscation.
+# --------------------------------------------------------------------------
+NAME_OBFUSCATION_MIN = 5
+
+#: Characters of extractable text below which a one-page document counts as
+#: "nearly empty". A form carries labels and instructions and clears this
+#: comfortably; a dropper's single page exists only to hold the script.
+MINIMAL_DOC_TEXT_CHARS = 200
 
 
 @dataclass(slots=True)
@@ -102,6 +135,22 @@ def _indicator(
 def r_javascript_present(result: StaticAnalysisResult) -> Iterable[IndicatorResult]:
     if not result.javascript:
         return
+
+    # This rule was once suppressed when r_javascript_auto_exec also fired, on
+    # the reasoning that both describe the same JavaScript and the noisy-OR
+    # assumes independent evidence. The argument was sound; the measurement
+    # disagreed, and the measurement wins.
+    #
+    # Removing the 30 dropped malware carrying {JS_PRESENT, JS_AUTO_EXEC,
+    # MINIMAL_DOC} from 84 to 78 - under the quarantine threshold. Across 726
+    # samples that cost 98 true positives to remove 68 false positives, and
+    # recall at >= 80 fell from 83.5% to 70.0%.
+    #
+    # The lesson is about the shape of the distribution rather than the
+    # principle: scores cluster just above 80, so subtracting a constant from
+    # every JavaScript-bearing document pushes far more malware off the edge
+    # than it does ordinary files. Redundancy that keeps a real detection is
+    # worth more than the tidiness of counting each fact once.
     total = js_analysis.total_js_length(result.javascript)
     yield _indicator(
         "PDF_JS_PRESENT",
@@ -201,14 +250,26 @@ def r_launch_action(result: StaticAnalysisResult) -> Iterable[IndicatorResult]:
 
 @rule
 def r_auto_actions(result: StaticAnalysisResult) -> Iterable[IndicatorResult]:
-    auto = [a for a in result.actions if a.auto_executes and a.kind not in {"/Launch"}]
+    # /Launch has its own CRITICAL rule, and an /OpenAction pointing at
+    # JavaScript is already scored at HIGH/55 by r_javascript_auto_exec.
+    # Counting that same auto-execution a second time here is what pushed
+    # ordinary interactive forms past the quarantine threshold: one fact
+    # produced two indicators, and the noisy-OR turned 55 and 30 into 68 before
+    # any other finding was considered.
+    auto = [
+        a for a in result.actions if a.auto_executes and a.kind not in {"/Launch", "/JavaScript"}
+    ]
     if not auto:
         return
     yield _indicator(
         "PDF_AUTO_ACTION",
         "Document performs actions without user interaction",
-        Severity.MEDIUM,
-        30,
+        # Measured over 9,109 real documents: this fired on 9.02% of them. What
+        # survives the exclusions above is mostly /GoTo destinations and /Named
+        # actions such as print - things ordinary documents do on purpose - so
+        # it is weak corroboration, not a finding in its own right.
+        Severity.LOW,
+        15,
         "active_content",
         "Automatic actions run on open, page change or close.",
         mitre="T1204.002",
@@ -241,10 +302,24 @@ def r_xfa_form(result: StaticAnalysisResult) -> Iterable[IndicatorResult]:
     yield _indicator(
         "PDF_XFA_FORM",
         "Document uses an XFA (dynamic XML) form",
-        Severity.LOW,
-        20,
+        # Scored zero, though not for the reason first recorded here. An early
+        # measurement against a damaged malware sample suggested XFA was 2.7x
+        # more common in benign documents; a valid corpus of 10,627 malicious
+        # files says the opposite - 9.74% of malware against 6.35% of benign.
+        #
+        # The conclusion survives the correction because a ratio of 1.5 is worth
+        # almost nothing: seeing XFA barely moves the answer, and XFA is how
+        # interactive government and enterprise forms work. The YARA rule below
+        # does this job properly by matching XFA *structure* rather than its
+        # presence, at 7.74% of malware against under 0.11% of benign.
+        #
+        # The indicator is kept because it is useful context for a reviewer and
+        # for the AI evidence bundle. It just must not push the score.
+        Severity.INFO,
+        0,
         "active_content",
-        "XFA forms carry their own scripting layer and are rare in ordinary documents.",
+        "XFA forms carry their own scripting layer. Common in government and "
+        "enterprise forms, so on its own this says nothing about intent.",
     )
 
 
@@ -402,17 +477,50 @@ def r_risky_hosts(result: StaticAnalysisResult) -> Iterable[IndicatorResult]:
 @rule
 def r_name_obfuscation(result: StaticAnalysisResult) -> Iterable[IndicatorResult]:
     count = int(result.keyword_counts.get("__obfuscated_names__", 0))
-    if count < 1:
+    if count < NAME_OBFUSCATION_MIN:
         return
-    severity = Severity.HIGH if count >= 5 else Severity.MEDIUM
+
+    # Scored zero. This rule has now been measured twice and failed both times.
+    #
+    # At its original threshold of one escape it fired on 19.72% of benign
+    # documents - the largest single source of false positives. Raising the bar
+    # to five escapes cut that to 2.49%, which looked like a fix until a valid
+    # malware corpus arrived: at the same threshold it fires on only 1.47% of
+    # 10,627 malicious files. The tightened rule is now *anti*-correlated -
+    # seeing it should, if anything, reassure you.
+    #
+    # The YARA twin survives because it matches specific escaped keywords
+    # (/J#61vaScript, /Op#65nAction) rather than counting escapes, and that
+    # version does discriminate: 1.38% of malware against 0.60% of benign.
+    # Counting hex escapes measures how a producer writes names. Looking for
+    # which keyword was hidden measures intent.
+
+    # This rule was the single largest source of false positives: it fired on
+    # 19.72% of 9,109 ordinary documents against 25.34% of malware. A ratio of
+    # 1.3 is close to no information at all - seeing it barely shifts the
+    # answer - and yet at count >= 5 it was rated HIGH, which floors the score
+    # at 45 and could carry a benign document into the suspicious band unaided.
+    #
+    # The original assumption was that hex escapes have "no legitimate purpose".
+    # The measurement says otherwise: ordinary producers emit them routinely,
+    # and a handful of escaped characters is normal output, not evasion.
+    #
+    # So the bar moves from "any escape at all" to "enough that it looks
+    # deliberate", and the weight drops to a level where this can corroborate a
+    # real finding but never establish one.
+    #
+    # NOTE: NAME_OBFUSCATION_MIN is an estimate. The benchmark recorded which
+    # documents tripped this rule but not their escape counts, so the right
+    # cutoff is unmeasured. Instrument the count distribution and revisit.
     yield _indicator(
         "PDF_NAME_OBFUSCATION",
         "PDF name objects use hex escapes to hide keywords",
-        severity,
-        55 if count >= 5 else 35,
+        Severity.INFO,
+        0,
         "obfuscation",
-        "Writing /JavaScript as /J#61vaScript is valid PDF but has no legitimate "
-        "purpose beyond evading keyword scanners.",
+        "Writing /JavaScript as /J#61vaScript is valid PDF, and measurement shows "
+        "ordinary producers emit hex escapes at least as often as malware does. "
+        "Reported for context; see the YARA rule for the keyword-specific check.",
         mitre="T1027",
         occurrences=count,
     )
@@ -426,11 +534,20 @@ def r_incremental_updates(result: StaticAnalysisResult) -> Iterable[IndicatorRes
     yield _indicator(
         "PDF_MANY_INCREMENTAL_UPDATES",
         "Document has an unusual number of incremental updates",
-        Severity.LOW,
-        20,
+        # Scored zero, deliberately. Measured at 5.54% of 9,109 benign documents
+        # against 0.83% of the malware set - 6.7x more likely in a document that
+        # is fine. That is the opposite of what the rule assumed.
+        #
+        # It makes sense in hindsight: every signature, every annotation round,
+        # every form save appends a revision. A stack of incremental updates is
+        # the fingerprint of a document that has been through a legitimate
+        # workflow, not of one that is hiding something.
+        Severity.INFO,
+        0,
         "structure",
-        "Repeated appends can hide an older, benign-looking revision behind a "
-        "malicious current one.",
+        "Repeated appends can hide an older revision behind the current one, but "
+        "they are also what signing and annotation produce, so this is context "
+        "rather than evidence.",
         updates=updates,
     )
 
@@ -528,15 +645,33 @@ def r_no_pages_but_active(result: StaticAnalysisResult) -> Iterable[IndicatorRes
     pages = result.structure.page_count
     if pages is None or pages > 1 or not result.has_active_content:
         return
+
+    # The rule is named "nearly empty" but only ever checked the page count, so
+    # it fired on every one-page document carrying script. Measured against
+    # 9,109 benign files that meant single-page government forms - f1122, f2120,
+    # f5471sj and dozens of siblings - whose field-validation JavaScript runs on
+    # open exactly like a dropper's does. Combined with the JavaScript rules it
+    # put them at 87 and quarantined them.
+    #
+    # What actually separates a dropper from a form is that the dropper's page
+    # is empty: it exists only to carry the script. A form has labels,
+    # instructions and headings. Checking for text makes the condition match the
+    # description, which keeps the discrimination this rule earned (66.5% of
+    # malware against 1.88% of benign) without punishing real one-page forms.
+    if len(result.text_excerpt.strip()) >= MINIMAL_DOC_TEXT_CHARS:
+        return
+
     yield _indicator(
         "PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT",
         "Nearly empty document that still carries active content",
         Severity.HIGH,
         50,
         "structure",
-        "A one-page document whose only real payload is script or an action is far "
-        "more likely to be a dropper than a real document.",
+        "A one-page document with almost no readable text, whose only real payload "
+        "is script or an action, is far more likely to be a dropper than a real "
+        "document.",
         page_count=pages,
+        text_length=len(result.text_excerpt.strip()),
     )
 
 
@@ -633,8 +768,11 @@ class HeuristicEngine:
             return Verdict.SUSPICIOUS
         if score >= LOW_RISK_THRESHOLD:
             return Verdict.LOW_RISK
-        if not indicators:
-            return Verdict.CLEAN
+        # Below the low-risk threshold the verdict is CLEAN whether or not
+        # anything fired: indicators that score under 20 in total are not enough
+        # to withhold a clean bill of health, and they remain visible in the
+        # report either way. This previously had a redundant branch that tested
+        # `indicators` and returned CLEAN from both arms.
         return Verdict.CLEAN
 
 

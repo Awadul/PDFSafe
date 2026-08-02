@@ -44,4 +44,25 @@ Thumbs.db
 # IDE agent scratch files
 Memory.md
 .gemini/
+
+# Correspondence and drafts, not source
+docs-private/
+linkedin-post.md
+
+# --------------------------------------------------------------------------
+# Malware corpora. NEVER commit these.
+#
+# Publishing a sample archive from a public repository redistributes malware,
+# breaches the terms every corpus is shared under, and is a fast route to the
+# account being actioned. Benchmark results belong in the repo; the samples
+# they were computed from do not.
+# --------------------------------------------------------------------------
 Testing Folders/
+*.zip
+
+# Benchmark output. The summary belongs in the README as prose; the raw CSV is
+# tens of megabytes and lists sample paths. Note the wildcard - benchmark-v5/
+# and friends are not matched by a bare "benchmark/".
+benchmark*/
+Testing Folders/
+*.zip

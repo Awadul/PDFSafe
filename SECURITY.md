@@ -44,7 +44,8 @@ list a supported window.
 
 | Version | Supported |
 |---|---|
-| 0.1.x | ✅ |
+| 0.2.x | ✅ |
+| 0.1.x | ❌ — detection was uncalibrated; upgrade |
 
 ## Threat model
 
@@ -73,8 +74,26 @@ Knowing what PDFSafe *tries* to defend against makes reports easier to triage.
 ### Out of scope
 
 - **Detection misses and false positives.** These are correctness issues, not
-  vulnerabilities — please open a normal issue. The heuristics are tuned by hand
-  and there is no claim of completeness.
+  vulnerabilities — please open a normal issue using the *False positive* or
+  *False negative* template.
+
+  They are still taken seriously, and they are measurable. The rates published
+  in the [README](README.md#measured-performance) come from
+  `tools/benchmark_corpus.py` run over a labelled corpus, so any claim there can
+  be checked or contradicted:
+
+  ```
+  python tools/benchmark_corpus.py <corpus-root> --out benchmark
+  ```
+
+  Datasets are labelled by directory name (`MALWARE_...`, `CLEAN_...`). The
+  report gives per-indicator rates on both halves, which is what makes a
+  disagreement actionable — "this rule fires on 20% of ordinary documents" is a
+  fixable claim in a way that "it flagged my file" is not.
+
+  A single misclassified document is worth reporting too. The SHA-256, the score
+  and the indicator list are usually enough; please don't send confidential
+  files.
 - **Attacks requiring an already-compromised machine**, such as another process
   running as the same user editing `config.json` or the database. PDFSafe offers
   no protection against code already running with your privileges.
@@ -104,6 +123,14 @@ Knowing what PDFSafe *tries* to defend against makes reports easier to triage.
 
 These are documented rather than fixed, and are not vulnerabilities:
 
+- **Roughly 0.5% of ordinary documents are classified malicious and quarantined**
+  (measured over 9,109 real documents; see the README). Known clusters are
+  legacy US government publications that use `/Launch` to trigger printing, and
+  Adobe rich-media samples. This is far above a commercial scanner and is the
+  main reason quarantine renames a file rather than deleting it.
+- **Recall is measured against a historical corpus.** Detection of contemporary
+  samples is unknown and should be assumed lower — techniques that parse cleanly
+  are exactly what a pre-2011 corpus lacks.
 - The bundle is unsigned pre-1.0, so SmartScreen will warn.
 - `os.chmod` on Windows only clears the write bit; quarantine relies on the
   extension change, not on file permissions.

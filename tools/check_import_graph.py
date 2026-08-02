@@ -62,8 +62,7 @@ def main() -> int:
     leaked = sorted(FORBIDDEN & loaded)
     if leaked:
         print(
-            "FAIL: server dependencies leaked into the desktop import graph: "
-            + ", ".join(leaked),
+            "FAIL: server dependencies leaked into the desktop import graph: " + ", ".join(leaked),
             file=sys.stderr,
         )
         return 1

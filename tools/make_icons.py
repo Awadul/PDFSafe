@@ -42,7 +42,7 @@ def _shield_points(size: int) -> list[tuple[float, float]]:
     ]
 
 
-def render(size: int) -> "Image.Image":  # type: ignore[name-defined]  # noqa: F821
+def render(size: int) -> Image.Image:  # type: ignore[name-defined]  # noqa: F821
     from PIL import Image, ImageDraw
 
     # Supersample, then downscale: cheap antialiasing without a vector renderer.

@@ -11,14 +11,27 @@ tracker.
 
 **Tell us when PDFSafe is wrong about an ordinary document.**
 
-The heuristic weights were set by hand and have never been validated against a
-large corpus of real-world PDFs. We do not currently know the false-positive
-rate. If PDFSafe flags an invoice, a bank statement, a signed contract or a
-government form, that is a genuine defect and we want the report.
+Roughly **0.5% of ordinary documents are classified malicious**, measured over
+9,109 real ones — see [Measured performance](README.md#measured-performance).
+That is far above a commercial scanner, and every one of those documents is a
+defect. If PDFSafe flags an invoice, a bank statement, a signed contract or a
+government form, we want the report.
 
 Use the **False positive** issue template. You do not need to attach the
 document — the indicator list and score are usually enough, and if the file is
 confidential, please don't send it.
+
+If you have a corpus of your own, the measurement is one command:
+
+```powershell
+python tools\benchmark_corpus.py <corpus-root> --out benchmark
+```
+
+Datasets are labelled by directory name (`MALWARE_...`, `CLEAN_...`). The report
+breaks down which indicators fire on each half, which is what turns "it flagged
+my file" into a fixable claim. **A rule that fires more often on ordinary
+documents than on malware is a bug**, and three were found that way — two of
+them were adding weight in the wrong direction entirely.
 
 ## Setup
 

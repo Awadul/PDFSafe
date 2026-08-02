@@ -29,7 +29,7 @@ Output:
 
 ```
 dist\PDFSafe\                          program directory (~90-120 MB)
-dist\installer\PDFSafe-0.1.0-setup.exe single-file installer (~45-60 MB)
+dist\installer\PDFSafe-0.2.0-setup.exe single-file installer (~45-60 MB)
 dist\installer\latest.json             manifest for the auto-updater
 ```
 
@@ -83,7 +83,7 @@ the installer to a GitHub release, so the two URLs become:
 
 ```
 https://raw.githubusercontent.com/Awadul/PDFSafe/main/updates/latest.json
-https://github.com/Awadul/PDFSafe/releases/latest/download/PDFSafe-0.1.0-setup.exe
+https://github.com/Awadul/PDFSafe/releases/latest/download/PDFSafe-0.2.0-setup.exe
 ```
 
 The client requires HTTPS for both the manifest and the download, verifies the

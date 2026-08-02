@@ -1,0 +1,93 @@
+# Pre-commit hooks for PDFSafe.
+#
+#   pip install -e ".[dev]"
+#   pre-commit install
+#   pre-commit run --all-files        # first run, checks everything
+#
+# The hook selection is deliberate rather than a generic template. Each one here
+# corresponds to something that has actually gone wrong in this repository.
+#
+# Run `pre-commit autoupdate` after installing: the revs below were current when
+# written, and a stale pin is worse than no pin.
+
+default_language_version:
+  python: python3.12
+
+repos:
+  # ------------------------------------------------------------------ hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # A malware corpus was extracted inside the working tree and came within
+      # one `git add -A` of a public repository. 2 MB is generous for source and
+      # far below any sample archive.
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+
+      # .env holds a live API key. It is ignored, but ignore rules do nothing
+      # for a file already tracked, and this also catches the certificate
+      # material that code signing will introduce.
+      - id: detect-private-key
+
+      # pyproject.toml was broken mid-session by placing [project.urls] inside
+      # the [project] table, which silently orphaned `dependencies`. A parse
+      # check costs nothing and catches exactly that.
+      - id: check-toml
+      - id: check-yaml
+        # Workflow files use tags this parser rejects; the issue templates are
+        # plain YAML and are checked.
+        exclude: ^\.github/workflows/
+
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+      # Deliberately NOT using mixed-line-ending here. Git's core.autocrlf is
+      # on for this checkout, so the working tree is CRLF and the repository is
+      # LF. A hook that rewrites the working tree to LF would be undone by the
+      # next checkout, producing permanent phantom diffs. If you want line
+      # endings normalised, add a .gitattributes with `* text=auto eol=lf`
+      # instead - that is where the decision belongs.
+
+  # --------------------------------------------------------------------- lint
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      # These are two different tools. Running `ruff format` and reporting lint
+      # clean was a real mistake here, and it hid 51 findings.
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # -------------------------------------------------------------------- local
+  # These run from the project virtualenv rather than an isolated one, so they
+  # see the same dependency versions CI does.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (strict)
+        entry: mypy
+        args: [src]
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+      - id: import-graph
+        name: engine must not import Qt outside desktop/
+        entry: python tools/check_import_graph.py
+        language: system
+        pass_filenames: false
+        files: ^src/pdfsafe/
+        types: [python]
+
+      # Belt and braces over .gitignore. Ignore rules are trivially bypassed
+      # with `git add -f` and do nothing once a path is tracked; this refuses
+      # the commit outright.
+      - id: no-sample-corpora
+        name: refuse malware corpora, archives, secrets and benchmark output
+        language: fail
+        entry: >
+          This path must never be committed. Malware corpora, archives, .env and
+          benchmark output belong outside the repository - see .gitignore.
+        files: '(^Testing Folders/|^benchmark.*/|^docs-private/|\.zip$|^\.env$|^Memory\.md$)'

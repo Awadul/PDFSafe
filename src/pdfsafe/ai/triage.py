@@ -23,18 +23,33 @@ from dataclasses import dataclass
 from pdfsafe.ai import budget
 from pdfsafe.ai.evidence import build_evidence
 from pdfsafe.ai.registry import get_provider
-from pdfsafe.analysis.heuristics import HeuristicOutcome
+from pdfsafe.analysis.heuristics import (
+    LOW_RISK_THRESHOLD,
+    MALICIOUS_THRESHOLD,
+    SUSPICIOUS_THRESHOLD,
+    HeuristicEngine,
+    HeuristicOutcome,
+)
 from pdfsafe.config import Settings, get_settings
-from pdfsafe.enums import DecisionSource, Severity, Verdict, worst_verdict
+from pdfsafe.enums import DecisionSource, Severity, Verdict
 from pdfsafe.logging import get_logger
 from pdfsafe.metrics import ai_skipped_total
-from pdfsafe.schemas.ai import AICallResult
+from pdfsafe.schemas.ai import AICallResult, AIVerdict
 from pdfsafe.schemas.analysis import StaticAnalysisResult
 
 logger = get_logger(__name__)
 
 #: How much the LLM's score counts relative to the heuristic score.
 AI_SCORE_WEIGHT = 0.6
+
+#: Score range each verdict corresponds to, mirroring HeuristicEngine.to_verdict.
+#: UNKNOWN spans the whole range because it asserts nothing.
+_VERDICT_BANDS: dict[Verdict, tuple[int, int]] = {
+    Verdict.CLEAN: (0, LOW_RISK_THRESHOLD - 1),
+    Verdict.LOW_RISK: (LOW_RISK_THRESHOLD, SUSPICIOUS_THRESHOLD - 1),
+    Verdict.SUSPICIOUS: (SUSPICIOUS_THRESHOLD, MALICIOUS_THRESHOLD - 1),
+    Verdict.MALICIOUS: (MALICIOUS_THRESHOLD, 100),
+}
 
 
 @dataclass(slots=True)
@@ -164,31 +179,57 @@ def _fuse(
 ) -> TriageResult:
     """Combine the heuristic and AI judgements.
 
-    The AI leads, because it sees the same evidence with more context. Two
-    guard rails apply:
+    The AI leads, because it sees the same evidence with more context. Three
+    rules apply, and the third is the one that keeps the output coherent:
 
     * A ``CRITICAL`` heuristic indicator (embedded executable, /Launch action,
-      known exploit API) sets a floor of ``suspicious`` - the model may not
-      clear a file that demonstrably carries a weapon.
+      known exploit API) sets a floor - the model may not clear a file that
+      demonstrably carries a weapon.
     * The blended score keeps 40% of the heuristic weight so a confidently wrong
       model cannot drag a heavily-indicated file to zero.
+    * **The verdict is derived from the final score, never set independently.**
+
+    That last rule fixes a real defect. This function used to take the label
+    from the model and the number from the blend, with nothing tying them
+    together, so PDFSafe could report a file as *malicious* at 64/100 while
+    reporting another as *suspicious* at 70/100 - a worse label on a lower
+    number. The score is what the interface shows in large type and what the
+    history table sorts by, so users had no way to rank anything, and quarantine
+    (driven by the verdict) appeared to fire arbitrarily.
     """
     assert call.verdict is not None  # guarded by the caller
     ai = call.verdict
 
-    blended = round(AI_SCORE_WEIGHT * ai.risk_score + (1 - AI_SCORE_WEIGHT) * outcome.score)
+    ai_score = _reconcile_ai_score(ai)
+    if ai_score != ai.risk_score:
+        logger.info(
+            "ai_score_reconciled",
+            ai_verdict=ai.verdict.value,
+            reported=ai.risk_score,
+            used=ai_score,
+        )
 
-    verdict = ai.verdict
+    blended = round(AI_SCORE_WEIGHT * ai_score + (1 - AI_SCORE_WEIGHT) * outcome.score)
+
     has_critical = any(i.severity is Severity.CRITICAL for i in outcome.indicators)
     if has_critical:
-        verdict = worst_verdict(verdict, Verdict.SUSPICIOUS)
-        blended = max(blended, 60)
+        blended = max(blended, SUSPICIOUS_THRESHOLD + 10)
+
+    verdict = HeuristicEngine.to_verdict(blended, outcome.indicators)
 
     summary = ai.summary.strip() or _heuristic_summary(outcome, decision.reason)
-    if verdict is not ai.verdict:
+    if has_critical and ai.verdict in (Verdict.CLEAN, Verdict.LOW_RISK):
         summary += (
             " Verdict raised to at least 'suspicious' because static analysis found a "
             "critical indicator."
+        )
+    elif verdict is not ai.verdict:
+        # Disagreement is worth surfacing rather than quietly resolving: the
+        # reviewer should know the model reached a different conclusion.
+        summary += (
+            f" The model judged this '{ai.verdict.value.replace('_', ' ')}'; combined with "
+            f"local analysis the score is {blended}/100, reported as "
+            f"'{verdict.value.replace('_', ' ')}'."
         )
 
     logger.info(
@@ -211,6 +252,23 @@ def _fuse(
         ai_call=call,
         escalation=decision,
     )
+
+
+def _reconcile_ai_score(ai: AIVerdict) -> int:
+    """Move the model's number into the band its own label implies.
+
+    Nothing in the schema stops a provider returning ``verdict="malicious"``
+    alongside ``risk_score=30``; the two fields are validated independently. When
+    they disagree the label wins, because language models choose a category far
+    more reliably than they emit a calibrated number - the score is generated
+    token by token with no notion of the thresholds it will be compared against.
+
+    Reconciling here rather than in :class:`AIVerdict` keeps the schema a
+    faithful record of what the provider actually said, which matters when
+    debugging a provider that is producing incoherent output.
+    """
+    low, high = _VERDICT_BANDS.get(ai.verdict, (0, 100))
+    return max(low, min(high, ai.risk_score))
 
 
 def _heuristic_confidence(outcome: HeuristicOutcome) -> float:
