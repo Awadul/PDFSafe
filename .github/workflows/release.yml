@@ -11,11 +11,22 @@ on:
 
 permissions:
   contents: write
+  # Required by actions/attest-build-provenance.
+  id-token: write
+  attestations: write
 
 jobs:
   build-windows:
     runs-on: windows-latest
     timeout-minutes: 45
+
+    # Lifted from the step to the job. A step's own `env:` block is not visible
+    # to that step's `if:` expression, which is evaluated first - so the signing
+    # step below was unreachable and every release would have been silently
+    # unsigned even with the secret configured.
+    env:
+      CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+      CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -31,10 +42,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # Kept identical to ci.yml. A release that runs weaker checks than a pull
+      # request is a release that can ship something CI would have rejected.
       - name: Lint
         run: |
           ruff check src tests
+          ruff format --check src tests
           mypy src
+          python tools/check_import_graph.py
 
       - name: Test
         env:
@@ -49,10 +64,7 @@ jobs:
       # untrusted contexts therefore produce unsigned artifacts rather than
       # failing, and secrets are never exposed to them.
       - name: Import code-signing certificate
-        if: ${{ env.CERT_PFX_BASE64 != '' }}
-        env:
-          CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
-          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        if: env.CERT_PFX_BASE64 != ''
         shell: pwsh
         run: |
           $bytes = [Convert]::FromBase64String($env:CERT_PFX_BASE64)
@@ -74,15 +86,51 @@ jobs:
           }
           .\packaging\build.ps1 @arguments
 
+      # Every serious bug this project has shipped existed only in the frozen
+      # build and passed the whole test suite: a windowed executable has no
+      # console, so sys.stdout is None; PyInstaller relocates data files, so
+      # bundled rules go missing; spawned children re-import differently. None
+      # of that is reachable from pytest under a normal interpreter.
+      #
+      # The previous version of this step checked the file existed and printed
+      # its size, while its comment claimed to verify imports and YARA rules.
       - name: Smoke test the built executable
         shell: pwsh
         run: |
-          # The GUI cannot be exercised headlessly, but the bundle must at
-          # least import cleanly and find its YARA rules.
           $exe = "dist\PDFSafe\PDFSafe.exe"
           if (-not (Test-Path $exe)) { throw "Executable missing" }
-          $size = (Get-Item $exe).Length
-          Write-Host "PDFSafe.exe: $([math]::Round($size/1MB,1)) MB"
+          Write-Host "PDFSafe.exe: $([math]::Round((Get-Item $exe).Length/1MB,1)) MB"
+
+          # Signature rules must actually be inside the bundle. When they are
+          # absent the scanner degrades to a no-op and still reports verdicts,
+          # so a corpus run once showed zero YARA matches and it read as a
+          # tuning result rather than a packaging failure.
+          $rules = Get-ChildItem "dist\PDFSafe" -Recurse -Filter "*.yar" -ErrorAction SilentlyContinue
+          if (-not $rules) { throw "No .yar files in the bundle - signature detection would be silently disabled" }
+          Write-Host "Bundled rule files: $($rules.Count)"
+
+          # Start it. A frozen build that cannot reach its own logger dies
+          # before drawing a window, which is indistinguishable from never
+          # having been launched.
+          $log = Join-Path $env:LOCALAPPDATA "PDFSafe\logs\pdfsafe.log"
+          if (Test-Path $log) { Remove-Item $log -Force }
+
+          $process = Start-Process $exe -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(60)
+            while ((Get-Date) -lt $deadline) {
+              if ((Test-Path $log) -and (Select-String $log -Pattern "application_started" -Quiet)) {
+                Write-Host "Application started and logged successfully."
+                exit 0
+              }
+              Start-Sleep -Seconds 2
+            }
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw "PDFSafe.exe did not log application_started within 60s"
+          }
+          finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -92,6 +140,16 @@ jobs:
             dist/installer/*.exe
             dist/installer/latest.json
           retention-days: 30
+
+      # Free substitute for a code-signing certificate, and arguably a stronger
+      # claim for a technical audience: a verifiable record that this exact
+      # binary was produced by this workflow from this commit. Check it with
+      # `gh attestation verify <file> --repo Awadul/PDFSafe`.
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: dist/installer/*.exe
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
