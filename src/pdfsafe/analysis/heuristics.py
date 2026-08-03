@@ -17,8 +17,9 @@ genuinely conclusive. A ``CRITICAL`` indicator additionally imposes a floor.
 Calibration
 -----------
 Weights were originally set by judgement. Several have since been corrected
-against a corpus of **9,109 real documents** (US government forms, business
-reports, academic papers) using ``tools/benchmark_corpus.py``.
+against a corpus of **20,207 documents** - 11,098 malware samples and 9,109
+ordinary ones (US government forms, business reports, academic papers) - using
+``tools/benchmark_corpus.py``.
 
 The measure that matters for a rule is not how often it fires on malware but the
 ratio between the two rates. A rule that appears in 25% of malware and 20% of
@@ -304,8 +305,9 @@ def r_xfa_form(result: StaticAnalysisResult) -> Iterable[IndicatorResult]:
         "Document uses an XFA (dynamic XML) form",
         # Scored zero, though not for the reason first recorded here. An early
         # measurement against a damaged malware sample suggested XFA was 2.7x
-        # more common in benign documents; a valid corpus of 10,627 malicious
-        # files says the opposite - 9.74% of malware against 6.35% of benign.
+        # more common in benign documents; the complete corpus of 11,098
+        # malicious files says the opposite - 9.3% of malware against 6.35% of
+        # benign.
         #
         # The conclusion survives the correction because a ratio of 1.5 is worth
         # almost nothing: seeing XFA barely moves the answer, and XFA is how
@@ -485,9 +487,14 @@ def r_name_obfuscation(result: StaticAnalysisResult) -> Iterable[IndicatorResult
     # At its original threshold of one escape it fired on 19.72% of benign
     # documents - the largest single source of false positives. Raising the bar
     # to five escapes cut that to 2.49%, which looked like a fix until a valid
-    # malware corpus arrived: at the same threshold it fires on only 1.47% of
-    # 10,627 malicious files. The tightened rule is now *anti*-correlated -
-    # seeing it should, if anything, reassure you.
+    # malware corpus arrived: at the same threshold it fires on only 1.4% of
+    # 11,098 malicious files. The tightened rule is *anti*-correlated - seeing
+    # it should, if anything, reassure you.
+    #
+    # The escape-count distribution was then measured across the whole corpus.
+    # No threshold from 1 to 50 escapes gives a malware-to-benign ratio above
+    # 1.5, and the ratio moves non-monotonically, which is what noise looks
+    # like. There is no cutoff that rescues this rule.
     #
     # The YARA twin survives because it matches specific escaped keywords
     # (/J#61vaScript, /Op#65nAction) rather than counting escapes, and that

@@ -57,7 +57,12 @@ recorded verdicts with 0.1.0, re-scan rather than compare.
 Weights recalibrated against **19,736 documents** — 10,627 malware samples and
 9,109 ordinary ones — using the new `tools/benchmark_corpus.py`.
 
-At the quarantine threshold the engine now reaches **99.5% precision and 79.2%
+> **These figures were superseded.** They came from a run whose malware corpus
+> antivirus was deleting mid-scan. The definitive measurement is under
+> [Unreleased] and in the README: 99.59% precision, 80.08% recall, 0.41% of
+> ordinary documents flagged, over 20,207 files.
+
+At the quarantine threshold the engine reached **99.5% precision and 79.2%
 recall, flagging 0.47% of ordinary documents**. Before calibration, 4.94% of
 ordinary documents — 450 files, including live IRS tax forms — scored 80 or
 above and would have been renamed on the user's disk without being asked.

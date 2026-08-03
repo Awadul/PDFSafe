@@ -11,8 +11,8 @@ tracker.
 
 **Tell us when PDFSafe is wrong about an ordinary document.**
 
-Roughly **0.5% of ordinary documents are classified malicious**, measured over
-9,109 real ones — see [Measured performance](README.md#measured-performance).
+**0.41% of ordinary documents are classified malicious**, measured over 20,207
+files — see [Measured performance](README.md#measured-performance).
 That is far above a commercial scanner, and every one of those documents is a
 defect. If PDFSafe flags an invoice, a bank statement, a signed contract or a
 government form, we want the report.

@@ -123,8 +123,8 @@ Knowing what PDFSafe *tries* to defend against makes reports easier to triage.
 
 These are documented rather than fixed, and are not vulnerabilities:
 
-- **Roughly 0.5% of ordinary documents are classified malicious and quarantined**
-  (measured over 9,109 real documents; see the README). Known clusters are
+- **0.41% of ordinary documents are classified malicious and quarantined**
+  (measured over 20,207 documents; see the README). Known clusters are
   legacy US government publications that use `/Launch` to trigger printing, and
   Adobe rich-media samples. This is far above a commercial scanner and is the
   main reason quarantine renames a file rather than deleting it.

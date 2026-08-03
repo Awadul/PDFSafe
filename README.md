@@ -73,9 +73,13 @@ What gets extracted:
 
 ### 2. Scoring
 
-Twenty-three weighted rules produce a 0–100 risk score. Weights combine with a
-**noisy-OR** rather than a sum, so several weak signals accumulate without any pair of
-them saturating the scale, and a `critical` finding imposes a floor.
+Twenty-three rules produce a 0–100 risk score. Weights combine with a **noisy-OR** rather
+than a sum, so several weak signals accumulate without any pair of them saturating the
+scale, and a `critical` finding imposes a floor.
+
+Three rules carry a weight of zero. They were measured against a real corpus and found to
+fire as often on ordinary documents as on malware, so they are reported as context but
+excluded from the score — see [Which rules earn their weight](#which-rules-earn-their-weight).
 
 ```
  0 ────────── 20 ────────── 50 ────────── 80 ────── 100
@@ -94,10 +98,26 @@ In normal use almost everything scores near zero, so the model is consulted rare
 it is, it receives a **summary of the evidence** — structure, indicators, decoded
 JavaScript, URLs — never the document itself.
 
-Two guard rails on the result: a `critical` local finding floors the verdict at
-`suspicious` (the model cannot clear a file that demonstrably carries an executable), and
-the final score keeps 40% of the local weight so a confidently wrong model cannot drag a
-heavily-indicated file to zero.
+Three rules govern the result:
+
+- A `critical` local finding imposes a floor. The model cannot clear a file that
+  demonstrably carries an executable.
+- The final score keeps 40% of the local weight, so a confidently wrong model cannot drag
+  a heavily-indicated file to zero.
+- **The verdict is derived from the final score, never set independently.** If the model
+  returns a label and a number that contradict each other — which the response schema
+  permits, since the two fields are validated separately — the label wins and the score
+  moves into its band. A model picks a category far more reliably than it emits a
+  calibrated number.
+
+That last rule exists because it was once absent. The label came from the model and the
+number from the blend, so PDFSafe could report one file as *malicious* at 64/100 and
+another as *suspicious* at 70/100 — a worse label on a lower number, leaving the score
+useless for ranking anything.
+
+**The AI layer is not yet measured.** Every figure in this README comes from the static
+engine alone. Escalation costs an API call per ambiguous file, so evaluating it against a
+corpus of this size has not been done.
 
 Thresholds are adjustable in Settings.
 
@@ -230,7 +250,7 @@ no test caught.
 ### Testing
 
 ```powershell
-pytest -q                            # 149 tests
+pytest -q                            # 164 tests
 ruff check src tests                 # lint
 ruff format --check src tests        # formatting (a different tool from the above)
 mypy src                             # strict
