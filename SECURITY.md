@@ -107,9 +107,17 @@ Knowing what PDFSafe *tries* to defend against makes reports easier to triage.
   hard timeout and escalation from terminate to kill. Set
   `analysis_isolation = "in_process"` to disable this; the setting exists for
   speed and is not recommended.
-- **No document content is executed or rendered.** PDFSafe reads structure only.
-  It does not open documents in a viewer, run JavaScript, or resolve remote
-  references.
+- **No document content is executed.** PDFSafe does not open documents in a
+  viewer, run JavaScript, or resolve remote references.
+- **Nothing is rendered unless OCR is enabled**, and it is off by default.
+  Turning it on rasterises the first few pages so their text can be read, which
+  means a rendering engine processes attacker-controlled input — the one thing
+  the rest of the design avoids. Rasterisers have their own history of memory
+  corruption, so treat this as a deliberate trade: the ability to read scanned
+  documents in exchange for a wider attack surface. It runs only inside the
+  spawned parser child, capped by page count and resolution, and its
+  dependencies are an optional extra rather than part of the shipped bundle.
+  **Rendering bugs reachable through OCR are in scope for this policy.**
 - **Quarantine renames rather than deletes.** A malicious verdict strips the
   `.pdf` association from both the user's copy and the internal copy. Nothing is
   destroyed, because the false-positive rate is not yet characterised.

@@ -72,6 +72,19 @@ If a vendor still flags a release, submit it to them directly (Microsoft:
 <https://www.microsoft.com/wdsi/filesubmission>). Signing plus consistent
 publisher identity across releases is what durably fixes this.
 
+## What is deliberately not bundled
+
+**The OCR dependencies.** `pdfsafe[ocr-tesseract]` needs an external Tesseract binary, and
+`pdfsafe[ocr-rapidocr]` pulls roughly 90 MB of wheels — OpenCV alone is 44 MB. Bundling
+either would push the installer from ~144 MB towards the 250 MB ceiling CI enforces, for a
+feature most users never enable.
+
+It also means a shipped build carries no rendering engine at all, which keeps the default
+install honest about the claim in `SECURITY.md` that PDFSafe does not render documents.
+
+Users who want OCR install it themselves; the application reports
+`ocr_requested_but_unavailable` at WARNING if it is switched on without an engine present.
+
 ## Update hosting
 
 **The update check ships disabled.** There is no published feed yet, and a check

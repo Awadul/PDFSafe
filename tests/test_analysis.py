@@ -226,6 +226,67 @@ class TestCalibrationLock:
         assert weights.get("PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT") == 50  # 74.8% vs 0.11% -> 680x
 
 
+class TestOcr:
+    """OCR must be inert until asked for, and harmless when its deps are absent.
+
+    It is the only feature that renders attacker-controlled input, so the
+    default-off path is the one that matters most: a user who never enables it
+    should not be able to tell it was added.
+    """
+
+    def test_disabled_by_default(self) -> None:
+        from pdfsafe.config import Settings
+
+        assert Settings.model_fields["ocr_enabled"].default is False
+
+    def test_text_source_is_recorded(self, pdfs: Any) -> None:
+        """A rule reading text_excerpt needs to know if it is OCR output.
+
+        Extracted text is exact; OCR output is a guess. Anything weighing the
+        content - a phishing-word rule, the AI evidence bundle, a reviewer -
+        should be able to tell which it holds.
+        """
+        output = analyze_bytes(pdfs.benign_pdf(), filename="invoice.pdf")
+        assert output.result.text_source == "extracted"
+        assert output.result.ocr_pages == 0
+
+        empty = analyze_bytes(pdfs.launch_action_pdf(), filename="launch.pdf")
+        assert empty.result.text_source in ("none", "extracted")
+
+    def test_reports_unavailable_rather_than_raising(self) -> None:
+        """A missing optional dependency is a note, not a failed scan."""
+        from pdfsafe.analysis import ocr
+
+        ready, detail = ocr.available()
+        assert isinstance(ready, bool)
+        assert detail  # either an engine name or a reason
+
+    def test_extract_text_never_raises(self, pdfs: Any) -> None:
+        """Hostile input reaches the renderer; it must not break the scan."""
+        from pdfsafe.analysis import ocr
+
+        for data in (b"", b"not a pdf at all", pdfs.corrupt_pdf()):
+            assert isinstance(ocr.extract_text(data), ocr.OcrResult)
+
+    def test_only_runs_when_the_text_would_be_read(self) -> None:
+        """The gate that turned a 55-hour corpus run into a practical one.
+
+        A benign corpus is full of scanned documents with no active content. OCR
+        on those costs ~30s each and produces text that nothing consumes: the
+        "nearly empty document" rule requires active content to fire at all, and
+        the AI bundle only exists for escalated files.
+        """
+        from pdfsafe.config import Settings
+
+        assert Settings.model_fields["ocr_only_when_relevant"].default is True
+
+    def test_dpi_is_clamped(self) -> None:
+        """A hostile page should not be able to demand print-resolution work."""
+        from pdfsafe.analysis.ocr import MAX_DPI
+
+        assert MAX_DPI <= 200
+
+
 class TestUtils:
     def test_entropy_bounds(self) -> None:
         assert shannon_entropy(b"") == 0.0
@@ -372,7 +433,7 @@ class TestPipeline:
             StructureSummary,
         )
 
-        def build(text: str) -> StaticAnalysisResult:
+        def build(text: str, source: str = "extracted") -> StaticAnalysisResult:
             return StaticAnalysisResult(
                 sha256="a" * 64,
                 md5="b" * 32,
@@ -380,13 +441,25 @@ class TestPipeline:
                 structure=StructureSummary(page_count=1),
                 javascript=[JavaScriptFinding(location="/OpenAction", code="x", length=1)],
                 text_excerpt=text,
+                text_source=source,  # type: ignore[arg-type]
             )
 
-        form = build("Form 1122 - Authorization and Consent. " * 20)
+        prose = "Form 1122 - Authorization and Consent. " * 20
+        form = build(prose)
         dropper = build("")
 
         assert list(r_no_pages_but_active(form)) == []
         assert [i.code for i in r_no_pages_but_active(dropper)] == [
+            "PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT"
+        ]
+
+        # OCR text must not count as evidence the page is populated. Measured
+        # over 20,207 documents, letting it count suppressed this rule on 24
+        # malware files and 2 benign ones - 11 true positives lost at the
+        # quarantine threshold to remove a single false positive. A dropper's
+        # page is usually an image, and OCR reads decoy invoices happily.
+        ocr_dropper = build(prose, source="ocr")
+        assert [i.code for i in r_no_pages_but_active(ocr_dropper)] == [
             "PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT"
         ]
 

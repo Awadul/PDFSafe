@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from pdfsafe.analysis import javascript as js_analysis
 from pdfsafe.analysis import urls as url_analysis
@@ -96,6 +97,58 @@ def extract_evidence(
     keyword_counts["__obfuscated_names__"] = raw.obfuscated_names
     keyword_counts["__eof_markers__"] = raw.eof_count
 
+    # --- OCR for image-only documents -------------------------------------
+    # Gated twice on purpose: disabled unless the user asked for it, and then
+    # only for documents that yielded almost no text. A scan that already has
+    # readable content gains nothing from rendering, and rendering is the
+    # expensive, threat-model-widening part.
+    text_excerpt = parsed.text_excerpt
+    # Annotated as the literal rather than str so a typo - "OCR", "ocr_text" -
+    # is a type error here instead of a value the schema silently rejects at
+    # runtime, or worse, a branch elsewhere that never matches.
+    text_source: Literal["none", "extracted", "ocr"] = (
+        "extracted" if text_excerpt.strip() else "none"
+    )
+    ocr_pages = 0
+
+    needs_ocr = settings.ocr_enabled and len(text_excerpt.strip()) < settings.ocr_min_text_chars
+    if needs_ocr and settings.ocr_only_when_relevant:
+        # Rendering costs seconds per page; everything else here costs
+        # milliseconds. Only two things ever read this text: the "nearly empty
+        # document" rule, which cannot fire unless the document carries active
+        # content, and the evidence bundle sent to the model, which only exists
+        # for escalated files. A scanned brochure with no script, no actions and
+        # no links satisfies neither - OCR would write into a field nothing
+        # reads.
+        #
+        # Measured on a benign corpus this skips the overwhelming majority of
+        # renders: almost every image-only document there had no active content
+        # at all.
+        needs_ocr = bool(
+            javascript
+            or any(a.auto_executes for a in parsed.actions)
+            or parsed.embedded_files
+            or yara_matches
+            or url_analysis.dangerous(all_urls)
+            or url_analysis.risky_hosts(all_urls)
+        )
+
+    if needs_ocr:
+        from pdfsafe.analysis import ocr
+
+        recovered = ocr.extract_text(
+            data,
+            max_pages=settings.ocr_max_pages,
+            dpi=settings.ocr_dpi,
+            max_chars=settings.ocr_max_chars,
+            engine_preference=settings.ocr_engine,
+        )
+        if recovered:
+            text_excerpt = recovered.text
+            text_source = "ocr"
+            ocr_pages = recovered.pages_processed
+            log.debug("ocr_recovered_text", pages=ocr_pages, engine=recovered.engine)
+
     elapsed_ms = int((time.perf_counter() - started) * 1000)
 
     result = StaticAnalysisResult(
@@ -114,7 +167,9 @@ def extract_evidence(
         embedded_files=parsed.embedded_files,
         urls=all_urls,
         yara_matches=yara_matches,
-        text_excerpt=parsed.text_excerpt,
+        text_excerpt=text_excerpt,
+        text_source=text_source,
+        ocr_pages=ocr_pages,
         parse_errors=parsed.parse_errors,
     )
     if not raw.has_header:

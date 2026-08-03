@@ -75,6 +75,11 @@ class FileResult:
     #: from evidence rather than by guessing, which is how the rule ended up
     #: mis-tuned in the first place.
     obfuscated_names: int = 0
+    #: "extracted", "ocr" or "none". Reported in the summary because a run where
+    #: OCR silently did not execute is otherwise indistinguishable from one
+    #: where it ran and found nothing - which has already caused a wrong
+    #: conclusion about engine performance.
+    text_source: str = "none"
 
     @property
     def parse_failure_only(self) -> bool:
@@ -124,6 +129,7 @@ def analyse_one(job: tuple[str, str, str]) -> FileResult:
         output.outcome.verdict.value,
         [i.code for i in output.outcome.indicators],
         obfuscated_names=int(output.result.keyword_counts.get("__obfuscated_names__", 0)),
+        text_source=str(output.result.text_source),
     )
 
 
@@ -215,7 +221,13 @@ def _row(threshold: int, m: Metrics) -> str:
     )
 
 
-def write_summary(results: list[FileResult], out: Path, elapsed: float, workers: int) -> str:
+def write_summary(
+    results: list[FileResult],
+    out: Path,
+    elapsed: float,
+    workers: int,
+    limit: int = 0,
+) -> str:
     scored = [r for r in results if r.is_pdf and not r.error]
     malware = [r for r in scored if r.label == MALWARE]
     clean = [r for r in scored if r.label == CLEAN]
@@ -234,6 +246,26 @@ def write_summary(results: list[FileResult], out: Path, elapsed: float, workers:
         f"{len(results):,} files examined in {elapsed:.1f}s "
         f"({len(results) / elapsed:.1f} files/s, {workers} workers, static engine only).",
         "",
+    ]
+
+    if limit:
+        # --limit takes the first N from each dataset, which is fine for a smoke
+        # test and actively misleading for anything else: a dataset smaller than
+        # the limit is included whole while a large one is truncated, so the
+        # proportions shift enormously. A 109-file set that is 1% of the real
+        # corpus becomes 27% of a capped one, and every rate here moves with it.
+        #
+        # This has already produced two wrong conclusions, so it says so itself.
+        lines += [
+            f"> **Sampled run: `--limit {limit}` per dataset. Rates below are not",
+            "> comparable to a full run.** Small datasets are included whole while",
+            "> large ones are truncated, so the corpus proportions - and therefore",
+            "> every false-positive rate and indicator ratio - are distorted. Use",
+            "> this to check that a change works, never to decide whether it helped.",
+            "",
+        ]
+
+    lines += [
         "## Corpus",
         "",
         "| Dataset | Label | Files scored |",
@@ -248,6 +280,15 @@ def write_summary(results: list[FileResult], out: Path, elapsed: float, workers:
         f"| **Total scored** | — | **{len(scored):,}** |",
         "",
         f"Excluded: {len(non_pdf):,} non-PDF files, {len(errors):,} read/analysis errors.",
+        "",
+        # Stated unconditionally. A run where OCR silently did not execute looks
+        # exactly like one where it ran and changed nothing, and that ambiguity
+        # already produced a wrong conclusion about engine performance.
+        f"**OCR: {sum(1 for r in scored if r.text_source == 'ocr'):,} documents** "
+        f"({sum(1 for r in scored if r.text_source == 'extracted'):,} had extractable "
+        f"text, {sum(1 for r in scored if r.text_source == 'none'):,} had none). "
+        "Zero here with OCR enabled means no engine was available - check the log "
+        "for `ocr_requested_but_unavailable`.",
         "",
         "## Headline numbers, at the thresholds PDFSafe ships",
         "",
@@ -435,7 +476,7 @@ def main() -> int:
                 ]
             )
 
-    print(write_summary(results, args.out, elapsed, args.workers))
+    print(write_summary(results, args.out, elapsed, args.workers, limit=args.limit))
     print(f"\nWrote {args.out / 'results.csv'} and {args.out / 'summary.md'}")
     return 0
 

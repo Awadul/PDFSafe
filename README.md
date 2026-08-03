@@ -26,6 +26,7 @@ structure and looks for exactly those capabilities, then scores what it finds.
 | **Quarantine**                 | Malicious files are renamed so they cannot open by accident — never deleted |
 | **Watch folders**              | New PDFs in Downloads are scanned automatically                         |
 | **Explorer integration**       | Right-click any PDF → _Scan with PDFSafe_                               |
+| **Optional OCR**               | Reads text out of scanned documents. Off by default — [see why](#5-ocr--optional-and-off-by-default) |
 
 ### What it does not do
 
@@ -136,6 +137,54 @@ restore the original name.
 
 ---
 
+### 5. OCR — optional, and off by default
+
+A scanned document contains no extractable text. Every text-based signal is blind to it:
+phishing wording is invisible to both the rules and the model, and a scanned form is hard
+to tell apart from a near-empty dropper, because both look like a page with nothing on it.
+
+OCR closes that gap by rasterising the first few pages and reading them back.
+
+```powershell
+winget install UB-Mannheim.TesseractOCR   # the engine, one Apache-2.0 binary
+pip install -e ".[ocr-tesseract]"         # the Python side
+```
+
+Then enable it in **Settings → Scanning**, or:
+
+```powershell
+$env:PDFSAFE_OCR_ENABLED = "true"
+python -c "from pdfsafe.analysis import ocr; print(ocr.available())"   # (True, 'tesseract')
+```
+
+**Why it is off by default.** Everywhere else PDFSafe reads structure and never renders.
+OCR requires running a rendering engine over attacker-controlled input, and rasterisers
+have their own history of memory-corruption bugs. That is a real trade, not a footnote —
+`SECURITY.md` treats rendering bugs reachable through OCR as in scope.
+
+Three things contain it, and a fourth keeps it affordable:
+
+| | |
+|---|---|
+| Runs in the parser sandbox | rendering happens in the disposable child process, under the same hard timeout |
+| Capped | 3 pages, 200 DPI ceiling, 4,000 characters |
+| Optional dependency | no rendering engine or OCR model ships in the installer |
+| **Gated on relevance** | only documents that *also* carry active content, an embedded file, a YARA hit or a risky link |
+
+That last gate is what makes it usable. Only two things ever read the recovered text: the
+"nearly empty document" rule, which cannot fire unless the document has active content,
+and the evidence bundle sent to the model, which only exists for escalated files. Without
+the gate, a corpus run spent ~30 s per file writing text that nothing read — about 55
+hours for 20,000 documents.
+
+Every scan records `text_source` as `extracted`, `ocr` or `none`. Extracted text is exact;
+OCR output is a guess, and anything weighing it should know which it holds.
+
+Settings: `ocr_enabled`, `ocr_engine`, `ocr_min_text_chars`, `ocr_max_pages`, `ocr_dpi`,
+`ocr_max_chars`, `ocr_only_when_relevant`, `ocr_tesseract_path`.
+
+---
+
 ## Privacy
 
 **A default install opens no network connection at all.** AI review and the update
@@ -190,7 +239,10 @@ pdfsafe scan <folder> --json --no-ai # bulk, machine-readable, no API calls
 ```
 
 Omit `desktop` from the extras if you only want the CLI — it skips the ~90 MB Qt
-download.
+download. Add `ocr-tesseract` if you are working on scanned-document handling; see
+[OCR](#5-ocr--optional-and-off-by-default).
+
+Available extras: `desktop`, `build`, `dev`, `ocr`, `ocr-tesseract`, `ocr-rapidocr`.
 
 System libraries for building `pikepdf` and `yara-python` from source:
 
@@ -282,7 +334,61 @@ endpoint antivirus does not quarantine the source file.
   in-process parsing in Settings if you are scanning thousands of files and accept the
   reduced isolation.
 - **Image-only PDFs.** Scanned documents contain no extractable text, so phishing wording
-  in them is invisible to both the rules and the model. OCR is on the roadmap.
+  in them is invisible to both the rules and the model — and a scanned form is hard to
+  distinguish from a near-empty dropper. Optional OCR closes this:
+
+  ```powershell
+  winget install UB-Mannheim.TesseractOCR   # one Apache-2.0 binary
+  pip install -e ".[ocr-tesseract]"         # then enable it in Settings
+  ```
+
+  Tesseract is recommended on dependency grounds: one audited Apache-2.0 binary,
+  against RapidOCR's OpenCV, ONNX Runtime and opaque model weights. A pure-pip
+  alternative exists (`.[ocr-rapidocr]`) for environments where an external
+  binary is impractical.
+
+  **Measured over the full 20,207-document corpus, OCR did not improve
+  detection — it reduced it.** 362 documents were rendered:
+
+  | At ≥ 80 | OCR off | OCR on |
+  |---|---:|---:|
+  | True positives | 8,887 | **8,876** |
+  | False positives | 37 | 37 |
+  | Wall clock | 631 s | 2,202 s |
+
+  Eleven true positives lost, one false positive removed at `suspicious`, none
+  at `malicious`, for 3.5× the runtime.
+
+  The cause is worth understanding before enabling it. OCR suppressed
+  `PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT` on **24 malware documents and 2 benign
+  ones** — a dropper's single page is usually an image (a decoy invoice, a
+  "click to enable content" lure), OCR reads it happily, and the page stops
+  looking empty. The engine's strongest discriminator switches off on exactly
+  the files it exists to catch.
+
+  That specific interaction is now fixed — only *extracted* text counts toward
+  the emptiness check, never OCR output — but the broader lesson stands:
+  **recovered text is weaker evidence than extracted text, and any rule
+  consuming it should say which it is holding.** `text_source` records that on
+  every scan.
+
+  OCR's remaining purpose is the AI evidence bundle, which benchmarks disable.
+  **Its value therefore rests on the AI layer, which is itself unmeasured.**
+
+  Confirm an engine is actually loaded before trusting any comparison — a run
+  with no engine installed looks identical to one where OCR found nothing, which
+  produced a wrong conclusion here once already:
+
+  ```powershell
+  python -c "from pdfsafe.analysis import ocr; print(ocr.available())"
+  ```
+
+  **Off by default, and not only for speed.** OCR rasterises pages, which means a
+  rendering engine processes attacker-controlled input — the one thing the rest of the
+  design avoids. It runs inside the parser sandbox, caps pages and resolution, and its
+  dependencies stay out of the shipped bundle. Its effect on the false-positive rate is
+  unmeasured; OCR output is noisy, and feeding noisy text to text-based rules is new
+  ground. Measure before trusting it.
 - **Encrypted PDFs.** A password-protected document cannot be inspected; PDFSafe reports
   that rather than guessing.
 - **Detection, not prevention.** PDFSafe does not stop you opening a file it flagged; it
@@ -342,11 +448,17 @@ obfuscated *names* by counting escapes does not.
 
 ## Roadmap
 
-- Publish a measured false-positive rate against a benign corpus
-- OCR for image-only documents
+- **Measure the AI review layer.** It is built but has no evidence behind it, and its
+  escalation gate stops at 84 — which excludes most remaining false positives, since they
+  score 85 or above. The layer meant to resolve ambiguity cannot see the ambiguous cases.
+- Measure OCR's effect on the full-corpus false-positive rate, and its benefit once the AI
+  layer is measured — the evidence bundle is the main consumer of recovered text
 - Optional ClamAV / VirusTotal enrichment
 - Scheduled full-folder sweeps
-- Signed macOS build
+- Signed builds, and a macOS package
+
+Done: [measured false-positive rate](#measured-performance) against a 20,207-document
+corpus, and [optional OCR](#5-ocr--optional-and-off-by-default) for image-only documents.
 
 ## Contributing
 

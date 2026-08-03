@@ -49,6 +49,26 @@ Every command in this repository's documentation is written to run from the
 repository root, with relative paths. If a command starts with `.\` or `python
 tools\...`, you are in the right directory when it works.
 
+### Optional: OCR
+
+Only needed if you are working on image-only document handling. It is off by default and
+its dependencies stay out of the shipped bundle.
+
+```powershell
+winget install UB-Mannheim.TesseractOCR    # apt install tesseract-ocr / brew install tesseract
+pip install -e ".[dev,ocr-tesseract]"
+python -c "from pdfsafe.analysis import ocr; print(ocr.available())"
+```
+
+Expect `(True, 'tesseract')`. On Windows the installer does not add itself to `PATH`, so
+the binary is also looked for in the standard install directories — if it still is not
+found, set `PDFSAFE_OCR_TESSERACT_PATH`.
+
+**Confirm an engine is loaded before drawing any conclusion from an OCR run.** A run with
+no engine installed produces results identical to one where OCR ran and found nothing.
+That ambiguity has already caused a wrong performance conclusion here, which is why
+`benchmark_corpus.py` reports how many documents it rendered.
+
 Building `pikepdf` and `yara-python` from source needs system libraries:
 
 ```bash

@@ -145,6 +145,37 @@ class Settings(BaseSettings):
     ai_daily_token_budget: int = 0
     ai_share_text_excerpt: bool = True
 
+    # ---------------------------------------------------------------- ocr ---
+    # Off by default, and not merely for cost. OCR requires rasterising a page,
+    # which is the one thing PDFSafe otherwise never does: everywhere else it
+    # reads structure and never renders attacker-controlled input. Enabling it
+    # trades a documented security property for the ability to read scanned
+    # documents, and that is the user's decision rather than ours.
+    ocr_enabled: bool = False
+    #: ``auto`` prefers Tesseract: one audited Apache-2.0 binary rather than
+    #: OpenCV, ONNX Runtime and opaque model weights. Both read a phishing lure
+    #: well enough; the dependency surface is what separates them.
+    ocr_engine: Literal["auto", "tesseract", "rapidocr"] = "auto"
+    #: Explicit path to tesseract.exe. Only needed when it is installed somewhere
+    #: unusual - the standard install directories are searched automatically,
+    #: because the common Windows installer does not add itself to PATH.
+    ocr_tesseract_path: str = ""
+    #: Only OCR when extraction produced less than this much text. A document
+    #: that already yields text does not need rendering.
+    ocr_min_text_chars: int = 200
+    #: Only OCR documents that carry something worth reading text alongside -
+    #: active content, an embedded file, a YARA hit or a risky link. Rendering
+    #: costs seconds per page where the rest of the pipeline costs milliseconds,
+    #: and text recovered from an otherwise-empty document is read by nothing.
+    #: Turn it off to OCR every low-text document, which is what a research run
+    #: measuring OCR quality wants and what a scanner does not.
+    ocr_only_when_relevant: bool = True
+    ocr_max_pages: int = 3
+    #: 150 DPI is comfortable for reading a lure. Lowering it to 100 roughly
+    #: halves the pixels and therefore the recognition work.
+    ocr_dpi: int = 150
+    ocr_max_chars: int = 4000
+
     anthropic_api_key: SecretStr = SecretStr("")
     anthropic_model: str = "claude-sonnet-5"
     anthropic_max_tokens: int = 2048

@@ -6,7 +6,7 @@ the scoring engine, the database, the API and the LLM prompt all consume them.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -159,6 +159,11 @@ class StaticAnalysisResult(_Model):
 
     # text
     text_excerpt: str = ""
+    #: Where ``text_excerpt`` came from. OCR output is noisier than extracted
+    #: text, so anything reading it - a rule, the AI evidence bundle, a human -
+    #: needs to know which it is holding rather than guessing from the content.
+    text_source: Literal["none", "extracted", "ocr"] = "none"
+    ocr_pages: int = 0
 
     # scoring (filled in by the heuristics engine)
     indicators: list[IndicatorResult] = Field(default_factory=list)

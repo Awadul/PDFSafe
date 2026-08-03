@@ -11,6 +11,69 @@ matters more to users than a UI tweak.
 
 ## [Unreleased]
 
+### Added
+- **Optional OCR for image-only documents** (`pdfsafe[ocr-tesseract]`), off by
+  default. A scanned document yields no extractable text, so every text-based
+  signal is blind to it and `PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT` cannot tell a
+  scanned form from a near-empty dropper.
+
+  Off by default for a reason beyond cost: OCR rasterises pages, so a rendering
+  engine processes attacker-controlled input — the one thing the rest of the
+  design avoids. `SECURITY.md` previously asserted that nothing is rendered;
+  that claim is now conditional, and rendering bugs reachable through OCR are
+  explicitly in scope.
+
+  Gated three ways: disabled unless requested, only for documents under 200
+  characters of extracted text, and only when the document also carries active
+  content, an embedded file, a YARA hit or a risky link. Without that third gate
+  a corpus run spent ~30 s per file producing text that nothing reads — about
+  55 hours for 20,000 documents.
+
+  **Measured over the full corpus, OCR reduced detection.** With 362 of 20,207
+  documents rendered it cost 11 true positives at the quarantine threshold to
+  remove one false positive at `suspicious`, for 3.5× the runtime.
+
+  The cause was an interaction, now fixed: OCR suppressed
+  `PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT` on 24 malware files against 2 benign
+  ones. A dropper's single page is typically an image, OCR reads the decoy, the
+  page stops looking empty, and the engine's strongest discriminator switches
+  off on precisely the files it exists to catch.
+
+  An earlier comparison appearing to show Tesseract 9× faster than RapidOCR was
+  measuring a run where Tesseract was not installed and OCR never executed. The
+  benchmark now reports how many documents it rendered, so that failure is
+  visible rather than inferred.
+
+### Fixed
+- **`PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT` now counts only extracted text**, never
+  OCR output, when deciding whether a page is empty. The rule asks whether a
+  document carries real content or exists to hold a script; a page whose only
+  text has to be recovered by rendering answers that the same way an empty one
+  does. Without this, enabling OCR measurably weakened detection.
+
+- Tesseract is located in the standard install directories when it is not on
+  `PATH`. The common Windows installer does not modify `PATH` unless the user
+  ticks a box, so `winget` could report the package installed while
+  `available()` reported it missing — both correct, and together useless.
+
+  `available()` probes the Tesseract *binary* rather than the `pytesseract`
+  import, which succeeds with nothing installed. Requesting OCR without an
+  available engine now logs `ocr_requested_but_unavailable` at WARNING, and the
+  benchmark reports how many documents were actually OCR'd — a run where OCR
+  silently did not execute is otherwise indistinguishable from one where it ran
+  and found nothing.
+
+  `text_source` records provenance on every scan, because OCR output is a guess
+  where extracted text is exact.
+
+### Changed
+- `tools/benchmark_corpus.py` warns when `--limit` is in use. Capping per
+  dataset includes small sets whole while truncating large ones, so a 109-file
+  set that is 1% of the real corpus becomes 27% of a capped one and every rate
+  shifts with it. That distortion produced two wrong readings before the warning
+  existed. Sampled runs are valid for comparing two configurations against each
+  other, never for deciding an absolute rate.
+
 ### Detection
 - Definitive measurement published in the README, replacing the figures quoted
   in 0.2.0. Those came from a run whose malware corpus antivirus had been

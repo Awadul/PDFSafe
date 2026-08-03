@@ -665,7 +665,25 @@ def r_no_pages_but_active(result: StaticAnalysisResult) -> Iterable[IndicatorRes
     # instructions and headings. Checking for text makes the condition match the
     # description, which keeps the discrimination this rule earned (66.5% of
     # malware against 1.88% of benign) without punishing real one-page forms.
-    if len(result.text_excerpt.strip()) >= MINIMAL_DOC_TEXT_CHARS:
+    # Only *extracted* text proves a page is not empty. OCR text must not count
+    # here, and the measurement is emphatic about why: enabling OCR over 20,207
+    # documents suppressed this indicator on 24 malware files and 2 benign ones,
+    # costing 11 true positives at the quarantine threshold to remove a single
+    # false positive at `suspicious`.
+    #
+    # The asymmetry makes sense in hindsight. A dropper's single page is usually
+    # an image - a decoy invoice, a "click to enable content" lure - and OCR
+    # reads it happily. The page then looks populated, this rule switches off,
+    # and the engine loses its strongest discriminator (74.8% of malware against
+    # 0.11% of ordinary documents) on exactly the files it was built to catch.
+    #
+    # What the rule actually asks is "does this document carry real content, or
+    # does it exist to hold the script?" A page whose only text has to be
+    # recovered by rendering it answers that question the same way an empty one
+    # does. OCR output still reaches the AI evidence bundle, which is where it
+    # belongs.
+    extracted = result.text_source == "extracted"
+    if extracted and len(result.text_excerpt.strip()) >= MINIMAL_DOC_TEXT_CHARS:
         return
 
     yield _indicator(

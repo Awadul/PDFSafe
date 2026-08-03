@@ -50,6 +50,36 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Optional OCR for image-only documents. Deliberately not part of the default
+# install or the shipped bundle: it adds a rendering engine and OCR models that
+# most users never invoke, and rasterising attacker-controlled input is the one
+# thing PDFSafe otherwise never does. See src/pdfsafe/analysis/ocr.py.
+#
+# pypdfium2 rather than poppler/pdf2image because it is a self-contained wheel
+# with no system package to locate at runtime in a frozen build.
+# Rendering only. Pick an engine below - installing this alone gives you the
+# page rasteriser and a clear "no OCR engine installed" message.
+ocr = ["pypdfium2>=4.30.0"]
+
+# Recommended. Tesseract is a single Apache-2.0 binary with a long audit
+# history, and the whole install is 15-50 MB. It is an external executable, so
+# it must be installed separately:
+#   winget install UB-Mannheim.TesseractOCR
+#   choco install tesseract
+#   apt install tesseract-ocr  /  brew install tesseract
+ocr-tesseract = ["pypdfium2>=4.30.0", "pytesseract>=0.3.13"]
+
+# Pure-pip fallback for environments where an external binary is not practical.
+# Measured against Tesseract on the same 833-document sample it was 9.3x slower
+# (567.8s against 61.1s) for identical detection, on top of pulling roughly
+# 90 MB - opencv-python alone is 44 MB - with opaque model weights rather than
+# an auditable program. Convenient, and worse on every axis that was measured.
+ocr-rapidocr = [
+    "pypdfium2>=4.30.0",
+    "rapidocr-onnxruntime>=1.3.24",
+    "numpy>=1.26.0",
+]
+
 # The shipped desktop application.
 desktop = [
     "PySide6-Essentials>=6.8.0",
@@ -139,6 +169,11 @@ exclude = ["migrations/", "build/", "dist/", "packaging/"]
 module = [
     "yara", "pikepdf.*", "keyring.*", "watchdog.*",
     "win32api", "win32con", "winreg",
+    # The OCR extra is optional, so these are absent in a default checkout and
+    # in CI. Without this, `mypy src` fails for everyone who has not installed
+    # pdfsafe[ocr] - the intended majority. They are only referenced inside
+    # functions that already handle ImportError.
+    "pypdfium2.*", "rapidocr_onnxruntime.*", "pytesseract.*",
 ]
 ignore_missing_imports = true
 
