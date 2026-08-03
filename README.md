@@ -270,32 +270,55 @@ endpoint antivirus does not quarantine the source file.
 
 ### Measured performance
 
-Static engine only, no AI review, against **19,736 documents**: 10,627 malware
+Static engine only, no AI review, against **20,207 documents**: 11,098 malware
 samples (Contagio, pre-2011 and CVE-sorted) and 9,109 ordinary documents (US
 government forms, business reports, academic papers).
 
 | Threshold | What the user sees | Malware caught | Ordinary documents flagged |
 |---:|---|---:|---:|
-| ≥ 20 | `low risk` | **93.3%** | 10.9% |
-| ≥ 50 | `suspicious` | 81.6% | 6.7% |
-| ≥ 80 | `malicious` — quarantined | 79.2% | **0.47%** |
+| ≥ 20 | `low risk` | **93.6%** | 10.1% |
+| ≥ 50 | `suspicious` | 82.4% | 6.4% |
+| ≥ 80 | `malicious` — quarantined | 80.1% | **0.41%** |
 
-At the quarantine threshold that is **99.5% precision**: of 8,458 files PDFSafe
-would rename, 8,415 are malware and 43 are not.
+At the quarantine threshold that is **99.59% precision**: of 8,924 files PDFSafe
+would rename, 8,887 are malware and 37 are not.
 
 Reproduce it with `python tools\benchmark_corpus.py <corpus-root>`.
 
-**Read the numbers honestly.** 0.47% is roughly 1 document in 200 — far above a
+**Read the numbers honestly.** 0.41% is roughly 1 document in 244 — far above a
 commercial scanner, which is one reason a flagged file is renamed rather than
 deleted. The malware corpus is historical, so recall against 2020s samples is
 unknown and probably lower; techniques that parse cleanly are exactly what this
-corpus lacks. And 4% of detections come from `PDF_PARSE_FAILURE` alone, which
-means "this file is broken" rather than "this file is hostile".
+corpus lacks. And 3.9% of detections come from `PDF_PARSE_FAILURE` alone, which
+means "this file is malformed" rather than "this file is hostile" — a corrupted
+holiday photo would score the same.
 
-The remaining false positives cluster tightly: legacy US government publications
-that use `/Launch` to trigger printing, and Adobe rich-media sample documents.
-If PDFSafe flags something of yours that is plainly fine, that is a defect and
-we want the report — see [Contributing](CONTRIBUTING.md).
+The 37 remaining false positives cluster tightly: Adobe rich-media sample
+documents, and legacy US government publications that use `/Launch` to trigger
+printing. If PDFSafe flags something of yours that is plainly fine, that is a
+defect and we want the report — see [Contributing](CONTRIBUTING.md).
+
+### Which rules earn their weight
+
+The measure that matters is not how often a rule fires on malware, but the ratio
+between its rate there and on ordinary documents:
+
+| Indicator | Malware | Ordinary | Ratio |
+|---|---:|---:|---:|
+| `PDF_JS_OBFUSCATED` | 12.9% | <0.1% | **>117×** |
+| `YARA_..._OPENACTION_JAVASCRIPT` | 74.5% | 0.24% | **311×** |
+| `PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT` | 74.8% | 0.11% | **680×** |
+| `PDF_JS_AUTO_EXEC` | 79.1% | 3.50% | 23× |
+| `PDF_LAUNCH_ACTION` | 0.67% | 0.15% | 4.5× |
+| `PDF_XFA_FORM` | 9.3% | 6.35% | 1.5× — scored zero |
+| `PDF_NAME_OBFUSCATION` | 1.4% | 2.49% | 0.6× — scored zero |
+
+Two rules were found to be adding weight in the wrong direction and are now
+reported for context but excluded from the score. `PDF_NAME_OBFUSCATION` is the
+instructive one: counting hex-escaped names measures how a *producer* writes a
+document, not what its author intended, and no threshold from 1 to 50 escapes
+gives a ratio above 1.5. Detecting obfuscated *JavaScript* works; detecting
+obfuscated *names* by counting escapes does not.
 
 ## Roadmap
 

@@ -11,6 +11,24 @@ matters more to users than a UI tweak.
 
 ## [Unreleased]
 
+### Detection
+- Definitive measurement published in the README, replacing the figures quoted
+  in 0.2.0. Those came from a run whose malware corpus antivirus had been
+  deleting mid-scan, and predated the `PDF_NAME_OBFUSCATION` change. The full
+  corpus — **20,207 documents, 11,098 of them malware, zero read errors** —
+  gives **99.59% precision and 80.08% recall at the quarantine threshold, with
+  0.41% of ordinary documents flagged.**
+- The escape-count distribution settles `PDF_NAME_OBFUSCATION`. Across
+  thresholds from 1 to 50 escapes the malware-to-benign ratio never exceeds 1.5
+  and moves non-monotonically, which is what noise looks like. Counting hex
+  escapes measures the producer, not the author. `PDF_JS_OBFUSCATED` — 12.9% of
+  malware against under 0.1% of ordinary documents — is the obfuscation rule
+  that works.
+- `PDF_LAUNCH_ACTION` confirmed at 0.67% of malware against 0.15% of ordinary
+  documents. Earlier partial corpora suggested it was inverted; on the complete
+  set it discriminates 4.5×, which retrospectively justifies declining to
+  weaken it on damaged evidence.
+
 ### Fixed
 - **The verdict and the risk score could contradict each other.** When the AI
   reviewed a file, `_fuse` took the label from the model and the number from a
