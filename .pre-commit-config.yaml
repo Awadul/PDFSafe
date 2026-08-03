@@ -90,4 +90,4 @@ repos:
         entry: >
           This path must never be committed. Malware corpora, archives, .env and
           benchmark output belong outside the repository - see .gitignore.
-        files: '(^Testing Folders/|^benchmark.*/|^scratch/|^docs-private/|\.zip$|^\.env$|^Memory\.md$)'
+        files: '(^Testing Folders/|^benchmark.*/|^scratch|\.pdf$|^docs-private/|\.zip$|^\.env$|^Memory\.md$)'

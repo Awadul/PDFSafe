@@ -64,8 +64,14 @@ Testing Folders/
 # listed it. Any directory used for throwaway output needs a rule *before* it
 # is first written to, not after.
 benchmark*/
-scratch/
+scratch*
 *.results.csv
 benchmark_results.csv
+
+# Sample documents are never committed. tests/fixtures/pdf_builder.py assembles
+# them byte by byte at runtime precisely so that endpoint antivirus cannot
+# quarantine a source file - which it has already done three times here. A
+# committed PDF carrying /JavaScript reaches every person who clones the repo.
+*.pdf
 Testing Folders/
 *.zip
