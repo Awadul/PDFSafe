@@ -360,6 +360,8 @@ def write_summary(results: list[FileResult], out: Path, elapsed: float, workers:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path, help="Directory whose subdirectories are datasets")
     parser.add_argument("--out", type=Path, default=Path("benchmark"))
