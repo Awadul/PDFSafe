@@ -135,6 +135,97 @@ class TestYaraRules:
         )
 
 
+class TestCalibrationLock:
+    """Pins the rule weights that measurement chose and intuition would not.
+
+    Every assertion here looks wrong at first reading. A rule named
+    "name obfuscation" scoring zero in a malware scanner looks like a bug; two
+    indicators describing the same JavaScript looks like a double-count worth
+    tidying. Both are deliberate, both were measured over 20,207 documents, and
+    both have already been "corrected" once by someone reasoning from the names
+    instead of the data.
+
+    If one of these fails, do not adjust the number to make it pass. Re-run
+    ``tools/benchmark_corpus.py`` and change it only if the corpus disagrees.
+    """
+
+    @staticmethod
+    def _result(**kwargs: Any) -> Any:
+        from pdfsafe.schemas.analysis import StaticAnalysisResult
+
+        return StaticAnalysisResult(sha256="a" * 64, md5="b" * 32, file_size=2048, **kwargs)
+
+    def test_xfa_scores_zero(self) -> None:
+        """9.3% of malware against 6.35% of ordinary documents - a ratio of 1.5.
+
+        XFA is how interactive government and enterprise forms work. The YARA
+        rule that matches XFA *structure* discriminates at over 70x; presence
+        alone tells you almost nothing.
+        """
+        from pdfsafe.analysis.heuristics import r_xfa_form
+        from pdfsafe.schemas.analysis import StructureSummary
+
+        found = list(r_xfa_form(self._result(structure=StructureSummary(has_xfa=True))))
+        assert [i.weight for i in found] == [0]
+
+    def test_incremental_updates_score_zero(self) -> None:
+        """0.15% of malware against 5.54% of ordinary documents - 37x inverted.
+
+        Every signature and annotation round appends a revision, so a stack of
+        them marks a document that went through a legitimate workflow.
+        """
+        from pdfsafe.analysis.constants import MANY_INCREMENTAL_UPDATES
+        from pdfsafe.analysis.heuristics import r_incremental_updates
+        from pdfsafe.schemas.analysis import StructureSummary
+
+        structure = StructureSummary(incremental_updates=MANY_INCREMENTAL_UPDATES + 5)
+        found = list(r_incremental_updates(self._result(structure=structure)))
+        assert [i.weight for i in found] == [0]
+
+    def test_name_obfuscation_scores_zero(self) -> None:
+        """1.4% of malware against 2.49% of ordinary documents.
+
+        The escape-count distribution was measured across the full corpus: no
+        threshold between 1 and 50 escapes gives a ratio above 1.5, and it moves
+        non-monotonically, which is what noise looks like. Counting hex escapes
+        measures how a producer writes names, not what an author intended.
+
+        Obfuscation detection is not disabled - PDF_JS_OBFUSCATED runs at 12.9%
+        of malware against under 0.1% of ordinary documents.
+        """
+        from pdfsafe.analysis.heuristics import NAME_OBFUSCATION_MIN, r_name_obfuscation
+
+        counts = {"__obfuscated_names__": NAME_OBFUSCATION_MIN + 10}
+        found = list(r_name_obfuscation(self._result(keyword_counts=counts)))
+        assert [i.weight for i in found] == [0]
+
+    def test_auto_executing_script_yields_two_indicators(self, pdfs: Any) -> None:
+        """Deliberate redundancy. Removing it cost 98 true positives.
+
+        PDF_JS_PRESENT and PDF_JS_AUTO_EXEC describe the same script, and the
+        noisy-OR treats indicators as independent - so suppressing the first
+        looks like an obvious fix. Measured, it dropped recall at the quarantine
+        threshold from 83.5% to 70.0% while removing only 68 false positives.
+        Scores cluster just above 80, so subtracting a constant from every
+        JavaScript-bearing document pushes far more malware off the edge than
+        ordinary files.
+        """
+        codes = {i.code for i in analyze_bytes(pdfs.openaction_js_pdf()).outcome.indicators}
+        assert {"PDF_JS_PRESENT", "PDF_JS_AUTO_EXEC"} <= codes
+
+    def test_load_bearing_weights(self, pdfs: Any) -> None:
+        """The three rules carrying the detection, with their measured ratios."""
+        from pdfsafe.analysis.heuristics import score_result
+        from pdfsafe.analysis.pipeline import extract_evidence
+
+        outcome = score_result(extract_evidence(pdfs.openaction_js_pdf()))
+        weights = {i.code: i.weight for i in outcome.indicators}
+
+        assert weights.get("PDF_JS_AUTO_EXEC") == 55  # 79.1% vs 3.50% -> 23x
+        assert weights.get("PDF_JS_PRESENT") == 30  # 80.2% vs 4.65% -> 17x
+        assert weights.get("PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT") == 50  # 74.8% vs 0.11% -> 680x
+
+
 class TestUtils:
     def test_entropy_bounds(self) -> None:
         assert shannon_entropy(b"") == 0.0
