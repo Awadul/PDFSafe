@@ -55,6 +55,86 @@ class TestRawScan:
         assert not raw.has_header
 
 
+class TestYaraRules:
+    """Nothing else in the suite checks these files, and they keep disappearing.
+
+    The rule file is a list of malware signature strings, so endpoint antivirus
+    quarantines it. That has now happened three times here - twice to test
+    fixtures, once to the rules themselves.
+
+    The failure mode is the dangerous kind. ``get_rules()`` catches a missing or
+    broken rule set, logs it, and degrades to a no-op. That is right for a
+    running application, since one bad rule must not take the pipeline down, but
+    it means the entire signature layer can vanish in silence: nothing in a scan
+    result distinguishes "no signatures matched" from "there were no
+    signatures". It did vanish - a corpus run of 19,742 files reported zero YARA
+    matches, and the change in numbers looked like a tuning result rather than a
+    deleted file.
+
+    These read the files directly rather than through ``get_rules()``, because
+    the suite sets ``PDFSAFE_ENABLE_YARA=false`` and going through the settings
+    gate would make the whole check skip itself - the same class of silent pass
+    it exists to catch.
+    """
+
+    @staticmethod
+    def _rule_files() -> list[Any]:
+        from pdfsafe import paths
+
+        directory = paths.resource("analysis", "rules")
+        return sorted(directory.glob("*.yar")) + sorted(directory.glob("*.yara"))
+
+    def test_rules_exist(self) -> None:
+        from pdfsafe import paths
+
+        assert self._rule_files(), (
+            f"No YARA rules in {paths.resource('analysis', 'rules')}. If they were "
+            "there yesterday, endpoint antivirus has quarantined them - restore with "
+            "`git checkout` and add a scan exclusion for the repository."
+        )
+
+    def test_rules_compile(self) -> None:
+        yara = pytest.importorskip("yara", reason="yara-python is optional")
+
+        # The guard matters: iterating an empty list passes vacuously, so with
+        # the rule file deleted this test would report green while checking
+        # nothing at all - the exact failure it is here to detect.
+        files = self._rule_files()
+        assert files, "no rule files to compile"
+        for path in files:
+            yara.compile(source=path.read_text(encoding="utf-8"))  # raises on a syntax error
+
+    def test_expected_rules_are_present(self) -> None:
+        """Catches a truncated or partially restored file, which still compiles."""
+        from pdfsafe import paths
+
+        text = (paths.resource("analysis", "rules") / "pdf_malware.yar").read_text(encoding="utf-8")
+        for name in (
+            "PDFSafe_Exploit_API",
+            "PDFSafe_Printf_Format_Overflow",
+            "PDFSafe_Name_Obfuscation",
+            "PDFSafe_JBIG2_Decoder",
+        ):
+            assert f"rule {name}" in text, f"{name} is missing from the rule set"
+
+    def test_rules_still_match_something(self, pdfs: Any) -> None:
+        """Guards against rules narrowed until they never fire.
+
+        A condition tightened one step too far leaves a rule set that loads
+        cleanly and matches nothing, which is indistinguishable from working.
+        Directly relevant: ``PDFSafe_Name_Obfuscation`` was recently changed to
+        require more than four generic escapes.
+        """
+        yara = pytest.importorskip("yara")
+
+        rules = yara.compile(
+            sources={p.stem: p.read_text(encoding="utf-8") for p in self._rule_files()}
+        )
+        assert rules.match(data=pdfs.openaction_js_pdf()), (
+            "no bundled rule matched an auto-executing obfuscated script"
+        )
+
+
 class TestUtils:
     def test_entropy_bounds(self) -> None:
         assert shannon_entropy(b"") == 0.0
@@ -111,47 +191,6 @@ class TestJavaScriptAnalysis:
             JavaScriptFinding(location="/Names/JavaScript", code=code, length=len(code))
         )
         assert finding.obfuscation_score < 0.45
-
-
-class TestYaraRules:
-    """The suite runs with YARA disabled, so nothing else checks these files.
-
-    ``yara_engine.get_rules()`` catches a compile failure, logs it and degrades
-    to a no-op. That is correct for a running application - one bad rule must
-    not take the pipeline down - but it means the entire signature layer can
-    disappear in silence. It did: a corpus run of 19,742 files once reported
-    zero YARA matches, and the drop looked like a tuning result rather than a
-    broken file.
-    """
-
-    @staticmethod
-    def _rule_files() -> list[Any]:
-        from pdfsafe import paths
-
-        return sorted(paths.resource("analysis", "rules").glob("*.yar"))
-
-    def test_bundled_rules_compile(self) -> None:
-        yara = pytest.importorskip("yara")
-
-        files = self._rule_files()
-        assert files, "no .yar files found - the rule set would silently be empty"
-        for path in files:
-            yara.compile(source=path.read_text(encoding="utf-8"))  # raises on a syntax error
-
-    def test_bundled_rules_still_match_something(self, pdfs: Any) -> None:
-        """Guards against rules that compile but have been narrowed into nothing.
-
-        A condition tightened one step too far leaves a rule set that loads
-        cleanly and never fires, which is indistinguishable from working.
-        """
-        yara = pytest.importorskip("yara")
-
-        rules = yara.compile(
-            sources={p.stem: p.read_text(encoding="utf-8") for p in self._rule_files()}
-        )
-        assert rules.match(data=pdfs.openaction_js_pdf()), (
-            "no bundled rule matched an auto-executing obfuscated script"
-        )
 
 
 class TestURLAnalysis:

@@ -51,7 +51,17 @@ def get_rules() -> Any | None:
 
     sources = _rule_sources(settings.yara_rules_dir)
     if not sources:
-        logger.warning("yara_no_rules", searched=str(BUNDLED_RULES_DIR))
+        # ERROR, not WARNING. Missing rules mean every signature check silently
+        # passes, and a scan with no signature coverage is indistinguishable in
+        # the output from a scan that found nothing. Endpoint antivirus deletes
+        # this file - it is a list of malware signature strings - so "the rules
+        # vanished" is a routine event, not a hypothetical one.
+        logger.error(
+            "yara_no_rules",
+            searched=str(BUNDLED_RULES_DIR),
+            impact="signature detection is disabled for every scan",
+            likely_cause="antivirus quarantined the rule file",
+        )
         return None
 
     try:
