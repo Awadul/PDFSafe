@@ -787,13 +787,32 @@ class TestHeadlessStartup:
 
 class TestPaths:
     def test_directories_are_under_the_user_profile(self) -> None:
+        """A per-user install must never write outside the profile.
+
+        Checking for the substring "appdata" tested nothing: conftest redirects
+        the profile into tempfile.mkdtemp(), and on Windows that sits inside
+        C:\\Users\\...\\AppData\\Local\\Temp, so the assertion matched the
+        temp directory's own location rather than the property. On Linux the
+        coincidence disappears and the same code fails. Compare against the
+        roots the environment actually declares instead.
+        """
+        import os
+
         from pdfsafe import paths
 
-        home = str(Path.home()).lower()
+        roots = [
+            Path(value)
+            for name in ("APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME")
+            if (value := os.environ.get(name))
+        ]
+        roots.append(Path.home())
+
         for value in (paths.roaming_dir(), paths.local_dir()):
             assert "pdfsafe" in str(value).lower()
-            # A per-user install must never write outside the profile.
-            assert str(value).lower().startswith(home) or "appdata" in str(value).lower()
+            resolved = Path(value).resolve()
+            assert any(resolved.is_relative_to(root.resolve()) for root in roots), (
+                f"{resolved} escapes every declared profile root: {roots}"
+            )
 
     def test_describe_lists_every_location(self) -> None:
         from pdfsafe import paths
