@@ -76,7 +76,10 @@ jobs:
         # pytest_configure, before marker selection happens, so a deselected GUI
         # suite still fails on libEGL. Disabling the plugin is also the more
         # honest test - this job exists to prove the engine runs without Qt.
-        run: pytest --cov=pdfsafe --cov-report=xml -m "not gui" -p no:pytestqt
+        # The plugin name is "pytest-qt", the entry-point name, not the module
+        # name "pytestqt" - and -p no:<name> matching nothing is silent, so the
+        # wrong spelling looks exactly like a fix that did not work.
+        run: pytest --cov=pdfsafe --cov-report=xml -m "not gui" -p no:pytest-qt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
