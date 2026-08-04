@@ -27,7 +27,11 @@ from pdfsafe.logging import get_logger
 
 logger = get_logger(__name__)
 
-_RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504}
+# 529 is non-standard but widely used by inference providers (NVIDIA NIM,
+# Anthropic) for "capacity is full right now". It is the most transient error
+# there is, and omitting it made every occurrence permanent: 6 of 10 calls in
+# one run failed on the first attempt at a status that clears in seconds.
+_RETRYABLE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504, 529}
 
 
 class CustomOpenAICompatibleProvider(LLMProvider):
@@ -50,6 +54,7 @@ class CustomOpenAICompatibleProvider(LLMProvider):
         timeout: int | None = None,
         max_retries: int | None = None,
         use_tools: bool = True,
+        reasoning_effort: str | None = None,
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         settings = get_settings()
@@ -62,6 +67,11 @@ class CustomOpenAICompatibleProvider(LLMProvider):
         self._api_key = api_key
         self._max_retries = max_retries if max_retries is not None else settings.ai_max_retries
         self.use_tools = use_tools
+        self.reasoning_effort = (
+            reasoning_effort
+            if reasoning_effort is not None
+            else settings.custom_ai_reasoning_effort
+        )
         self.extra_headers = extra_headers or {}
 
     def is_configured(self) -> bool:
@@ -85,13 +95,34 @@ class CustomOpenAICompatibleProvider(LLMProvider):
                 {"role": "user", "content": user_prompt},
             ],
         }
+        # A thinking model spends this budget reasoning and then has nothing left
+        # to answer with, returning an empty message that looks exactly like a
+        # parse failure. Suppress the reasoning rather than widen the parser -
+        # no parser can recover text the model never emitted.
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
         if self.use_tools:
             body["tools"] = [openai_tool_definition()]
             body["tool_choice"] = {"type": "function", "function": {"name": TOOL_NAME}}
         else:
             body["response_format"] = {"type": "json_object"}
 
-        data = self._post(body)
+        try:
+            data = self._post(body)
+        except AIResponseError as exc:
+            # Reasoning control is not universal: Gemini and the o-series accept
+            # it, gpt-4o and most self-hosted gateways reject the whole request.
+            # The endpoint is the authority on what it supports, so ask it once
+            # rather than making the operator configure it correctly - a setting
+            # that must be right for the call to work at all is a setting that
+            # will be wrong.
+            if "reasoning_effort" not in str(exc) or not self.reasoning_effort:
+                raise
+            logger.info("custom_provider_dropping_reasoning_effort", model=self.model)
+            self.reasoning_effort = ""
+            body.pop("reasoning_effort", None)
+            data = self._post(body)
+
         payload = self._extract_payload(data)
         usage_block = data.get("usage") or {}
         usage = {
@@ -107,7 +138,10 @@ class CustomOpenAICompatibleProvider(LLMProvider):
 
         @retry(
             stop=stop_after_attempt(max(1, self._max_retries)),
-            wait=wait_exponential(multiplier=1, min=1, max=20),
+            # Congestion clears on the scale of seconds to tens of seconds, so
+            # three attempts inside three seconds is not patience, it is three
+            # ways of asking at the same moment.
+            wait=wait_exponential(multiplier=2, min=2, max=45),
             retry=retry_if_exception_type(AIProviderError),
             reraise=True,
         )
@@ -120,6 +154,15 @@ class CustomOpenAICompatibleProvider(LLMProvider):
             except httpx.HTTPError as exc:
                 raise AIProviderError(f"Request to {self.base_url} failed: {exc}") from exc
 
+            # A 429 means either "too fast" (worth retrying) or "out of quota"
+            # (not). Retrying an exhausted quota spends three requests against
+            # the very budget that ran out, so a 150-file run consumed 450.
+            # Distinguish them by what the body says.
+            if response.status_code == 429 and _quota_exhausted(response.text):
+                raise AIResponseError(
+                    "Provider quota exhausted - not a rate limit, so retrying would "
+                    f"only consume more of it: {response.text[:200]}"
+                )
             if response.status_code in _RETRYABLE_STATUS:
                 raise AIProviderError(
                     f"Endpoint returned {response.status_code}: {response.text[:300]}"
@@ -144,9 +187,37 @@ class CustomOpenAICompatibleProvider(LLMProvider):
     @staticmethod
     def _extract_payload(data: dict[str, Any]) -> dict[str, Any]:
         try:
-            message = data["choices"][0]["message"]
+            choice = data["choices"][0]
+            message = choice["message"]
         except (KeyError, IndexError, TypeError) as exc:
             raise AIResponseError("Response did not contain choices[0].message") from exc
+
+        # Truncation and content filtering both surface downstream as "no JSON
+        # found", which sends the reader to the parser when the fault is in the
+        # request. Name the real cause here; a diagnosis that points at the wrong
+        # layer costs more than no diagnosis at all.
+        finish = str(choice.get("finish_reason") or "")
+        reasoning_tokens = int(
+            ((data.get("usage") or {}).get("completion_tokens_details") or {}).get(
+                "reasoning_tokens", 0
+            )
+            or 0
+        )
+        if finish in {"length", "max_tokens"} and not (
+            message.get("tool_calls") or (message.get("content") or "").strip()
+        ):
+            hint = (
+                f" The model spent {reasoning_tokens} tokens reasoning, leaving none for the"
+                " answer; set custom_ai_reasoning_effort=none or raise custom_ai_max_tokens."
+                if reasoning_tokens
+                else " Raise custom_ai_max_tokens."
+            )
+            raise AIResponseError(f"Response was truncated before any verdict.{hint}")
+        if finish == "content_filter":
+            raise AIResponseError(
+                "Provider's content filter blocked the response. Malware evidence can "
+                "trigger this; the file was not analysed by the model."
+            )
 
         # 1. Tool call.
         for call in message.get("tool_calls") or []:
@@ -171,6 +242,31 @@ class CustomOpenAICompatibleProvider(LLMProvider):
             return _loads(content)
 
         raise AIResponseError("Response contained neither a tool call nor JSON content")
+
+
+def _quota_exhausted(body: str) -> bool:
+    """Tell a spent quota apart from a request arriving too quickly.
+
+    Providers overload 429 for both. The distinction matters because backing
+    off fixes one and worsens the other.
+    """
+    lowered = body.lower()
+    # "billing" alone was too eager: Groq appends an upgrade link ending in
+    # /settings/billing to ordinary per-minute rate limits, so every one of them
+    # was misread as an exhausted allowance and never retried - turning a wait
+    # of a few seconds into a permanent failure. Match the claim, not the URL.
+    if "per minute" in lowered or "tokens per minute" in lowered or "tpm" in lowered:
+        return False
+    return any(
+        phrase in lowered
+        for phrase in (
+            "exceeded your current quota",
+            "quota_exceeded",
+            "insufficient_quota",
+            "quota exceeded",
+            "billing details",
+        )
+    )
 
 
 def _loads(text: str) -> dict[str, Any]:
@@ -204,4 +300,5 @@ def build_from_settings() -> CustomOpenAICompatibleProvider:
         base_url=settings.custom_ai_base_url,
         api_key=resolve_api_key("custom", settings.custom_ai_api_key.get_secret_value()),
         model=settings.custom_ai_model,
+        reasoning_effort=settings.custom_ai_reasoning_effort,
     )
