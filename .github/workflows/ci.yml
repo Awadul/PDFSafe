@@ -27,7 +27,11 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check src tests
       - run: ruff format --check src tests
-      - run: mypy src
+      # PDFSafe is a Windows application. Type-checking it as Linux reports
+      # winreg and ctypes.WinDLL as missing attributes - true on this runner,
+      # irrelevant to the product, and it fails the build for six errors that
+      # cannot occur where the code actually runs.
+      - run: mypy --platform win32 src
 
   # The shipped product. Runs on Windows because that is what users install,
   # and because the parser sandbox uses spawn semantics that differ from fork.
@@ -68,7 +72,11 @@ jobs:
           PDFSAFE_ENV: test
           PDFSAFE_AI_ENABLED: "false"
           QT_QPA_PLATFORM: offscreen
-        run: pytest --cov=pdfsafe --cov-report=xml -m "not gui"
+        # -p no:pytestqt, not just -m "not gui": the plugin imports QtGui during
+        # pytest_configure, before marker selection happens, so a deselected GUI
+        # suite still fails on libEGL. Disabling the plugin is also the more
+        # honest test - this job exists to prove the engine runs without Qt.
+        run: pytest --cov=pdfsafe --cov-report=xml -m "not gui" -p no:pytestqt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
