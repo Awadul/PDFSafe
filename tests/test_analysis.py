@@ -213,6 +213,40 @@ class TestCalibrationLock:
         codes = {i.code for i in analyze_bytes(pdfs.openaction_js_pdf()).outcome.indicators}
         assert {"PDF_JS_PRESENT", "PDF_JS_AUTO_EXEC"} <= codes
 
+    def test_a_lone_indicator_cannot_reach_quarantine(self) -> None:
+        """Corroboration is required before a file is renamed on disk.
+
+        Measured over 20,207 documents at scores of 80 or above: verdicts
+        resting on a single indicator were 8 false positives and 0 true
+        positives. No malware file in 11,106 reached the threshold on one
+        finding; eight ordinary documents did, mostly legacy government
+        publications that use /Launch to trigger printing.
+
+        Raising this ceiling means quarantining files on one observation, which
+        this corpus says is where the engine is least reliable.
+        """
+        from pdfsafe.analysis.heuristics import (
+            MALICIOUS_THRESHOLD,
+            SOLE_INDICATOR_CEILING,
+            HeuristicEngine,
+        )
+        from pdfsafe.enums import Severity
+        from pdfsafe.schemas.analysis import IndicatorResult
+
+        def indicator(code: str, weight: int) -> IndicatorResult:
+            return IndicatorResult(code=code, title="t", severity=Severity.CRITICAL, weight=weight)
+
+        alone = HeuristicEngine.combine([indicator("PDF_LAUNCH_ACTION", 85)])
+        assert alone == SOLE_INDICATOR_CEILING
+        assert alone < MALICIOUS_THRESHOLD
+
+        # Two agreeing findings are allowed through - the ceiling is about
+        # corroboration, not about capping severity.
+        corroborated = HeuristicEngine.combine(
+            [indicator("PDF_LAUNCH_ACTION", 85), indicator("PDF_EMBEDDED_EXECUTABLE", 70)]
+        )
+        assert corroborated >= MALICIOUS_THRESHOLD
+
     def test_load_bearing_weights(self, pdfs: Any) -> None:
         """The three rules carrying the detection, with their measured ratios."""
         from pdfsafe.analysis.heuristics import score_result

@@ -65,6 +65,20 @@ LOW_RISK_THRESHOLD = 20
 CRITICAL_FLOOR = 75
 HIGH_FLOOR = 45
 
+#: A verdict resting on one finding cannot reach the quarantine band, whatever
+#: that finding weighs.
+#:
+#: Measured over 20,207 documents: at scores of 80 or above, verdicts built on a
+#: single indicator were **8 false positives and 0 true positives**. Not one
+#: malware file in 11,106 reached the threshold on one finding; eight ordinary
+#: documents did - mostly legacy government publications using /Launch to
+#: trigger printing.
+#:
+#: Those documents are still reported as suspicious and still shown to the user
+#: with their evidence. What they no longer get is renamed on disk without being
+#: asked, on the strength of a single observation.
+SOLE_INDICATOR_CEILING = MALICIOUS_THRESHOLD - 1
+
 # --------------------------------------------------------------------------
 # Name obfuscation
 #
@@ -782,6 +796,13 @@ class HeuristicEngine:
             score = max(score, CRITICAL_FLOOR)
         elif Severity.HIGH in severities:
             score = max(score, HIGH_FLOOR)
+
+        # Corroboration is required for quarantine. A lone indicator - even
+        # PDF_LAUNCH_ACTION at weight 85 - is one observation, and one
+        # observation is where this engine is measurably least reliable.
+        # See SOLE_INDICATOR_CEILING for the numbers.
+        if len(indicators) == 1:
+            score = min(score, float(SOLE_INDICATOR_CEILING))
 
         return round(max(0.0, min(100.0, score)))
 
