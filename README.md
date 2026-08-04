@@ -1,7 +1,14 @@
 # PDFSafe
 
+[![CI](https://github.com/Awadul/PDFSafe/actions/workflows/ci.yml/badge.svg)](https://github.com/Awadul/PDFSafe/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
+
 A Windows desktop application that scans PDF files for malicious content before you open
 them. It works entirely offline; AI review is optional and uses your own API key.
+
+Measured against 20,207 real documents: **0.32%** false positives at the quarantine
+threshold from the static engine alone, **0.09%** with AI review enabled, with no
+detection loss. Both figures, and the code that produced them, are in this repository.
 
 ```
 PDFSafe.exe  →  drop a PDF  →  static analysis  →  verdict in ~1 second
@@ -341,7 +348,8 @@ src/pdfsafe/
   storage/        content-addressed local storage and quarantine
   cli.py          Typer CLI
 packaging/        PyInstaller spec, Inno Setup script, build pipeline
-tools/            make_icons.py, check_import_graph.py, reset_dev_state.ps1
+tools/            benchmarks, prompt inspection, icons, import-graph check,
+                  reset_dev_state.ps1
 tests/            pytest suite with synthetic malicious fixtures
 ```
 
@@ -357,12 +365,21 @@ no test caught.
 ### Testing
 
 ```powershell
-pytest -q                            # 164 tests
+pytest -q                            # 197 tests
 ruff check src tests                 # lint
 ruff format --check src tests        # formatting (a different tool from the above)
-mypy src                             # strict
+mypy --platform win32 src            # strict, checked against the target OS
 python tools\check_import_graph.py   # enforces the layering rule
 ```
+
+`--platform win32` matters when checking from Linux: `winreg` and
+`ctypes.WinDLL` are legitimately absent there, and reporting them wastes a
+reviewer's time on six errors that cannot occur where the code runs.
+
+CI additionally runs the engine suite on Linux without Qt installed
+(`-m "not gui" -p no:pytest-qt`). That job exists to keep the analysis engine
+independent of the desktop layer; if it starts needing PySide6, the layering
+rule has been broken somewhere `check_import_graph.py` did not look.
 
 Between manual GUI tests, reset the app's state so the same files can be scanned
 again — quarantine renames the originals, so a second run is not the same test:
@@ -373,6 +390,27 @@ again — quarantine renames the originals, so a second run is not the same test
 
 Drop `-WhatIf` to apply. It stops PDFSafe, clears the database, file store and
 quarantine vault, and restores `.quarantine` filenames.
+
+### Reproducing the measurements
+
+```powershell
+python tools\benchmark_corpus.py <corpus-root> --out benchmark      # static engine
+python tools\analyse_escalation.py benchmark\results.csv            # plan AI cost, no calls
+python tools\benchmark_ai.py benchmark\results.csv --max-calls 150  # measure the AI layer
+python tools\show_prompt.py benchmark\results.csv --label clean     # inspect one prompt
+```
+
+`benchmark_ai.py` reports more than accuracy, because accuracy alone hid two real
+failures. **Mean score drift on clean files** catches a model that inflates ordinary
+documents without yet crossing the threshold — invisible to a confusion matrix, which
+scores those as correct right up to the moment one crosses. **Score spread** catches a
+model whose answer barely varies: three of five models tested returned essentially one
+number for every file, and one answered 85 on eight of ten at confidence 0.9. Such a
+model "detects" malware by calling everything malicious and looks excellent on every
+conventional metric.
+
+Both are cheap to compute and neither is standard. Add them before trusting a number
+from any AI layer, including this one.
 
 Fixtures in `tests/fixtures/pdf_builder.py` assemble PDFs byte by byte so the suite can
 produce structures a well-behaved writer would refuse to emit. Nothing there is
