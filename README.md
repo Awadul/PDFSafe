@@ -22,7 +22,7 @@ structure and looks for exactly those capabilities, then scores what it finds.
 | ------------------------------ | ----------------------------------------------------------------------- |
 | **Verdict in about a second**  | Structural analysis, no signatures to download, no cloud round-trip     |
 | **Works offline**              | Every rule runs locally. With AI review off, nothing leaves the machine |
-| **Optional AI second opinion** | For files that are neither clearly safe nor clearly malicious           |
+| **Optional AI second opinion** | For ambiguous files — [measured](#measured-effect) at 72% fewer false positives, no detection loss |
 | **Quarantine**                 | Malicious files are renamed so they cannot open by accident — never deleted |
 | **Watch folders**              | New PDFs in Downloads are scanned automatically                         |
 | **Explorer integration**       | Right-click any PDF → _Scan with PDFSafe_                               |
@@ -93,7 +93,13 @@ excluded from the score — see [Which rules earn their weight](#which-rules-ear
 score < 25    →  decided locally: clean            no API call
 25 – 84       →  ambiguous: ask the model          one API call
 score ≥ 85    →  decided locally: malicious        no API call
+              ...unless ≤ 3 indicators raised it   one API call
 ```
+
+That last line matters. A score of 90 built from seven agreeing findings is not the same
+claim as a score of 90 resting on two, but the band alone cannot tell them apart. Measured
+on the corpus, high scores with thin evidence ran twelve false positives to one true
+positive, so evidence count now gates escalation alongside the score.
 
 In normal use almost everything scores near zero, so the model is consulted rarely. When
 it is, it receives a **summary of the evidence** — structure, indicators, decoded
@@ -116,9 +122,58 @@ number from the blend, so PDFSafe could report one file as *malicious* at 64/100
 another as *suspicious* at 70/100 — a worse label on a lower number, leaving the score
 useless for ranking anything.
 
-**The AI layer is not yet measured.** Every figure in this README comes from the static
-engine alone. Escalation costs an API call per ambiguous file, so evaluating it against a
-corpus of this size has not been done.
+A fourth rule governs the prompt rather than the result: **the model is not told the
+heuristic's score.** Sharing it produced agreement instead of review — one model returned
+the engine's own number on half the sample and called every file malicious, including the
+clean ones. Agreement laundered as corroboration is worse than no second opinion, so the
+model now sees the evidence and not the conclusion.
+
+#### Measured effect
+
+Running the model over 20,000 documents would spend real money to answer a question a few
+hundred calls answer better. The measurement is **paired** — each file is scored by the
+static engine and then by the fused verdict — so it reports a per-file delta rather than
+an estimate of a population rate, and sampling error does not enter it. Selection
+therefore targets the cases where the two could disagree: every false positive at the
+quarantine threshold, thin-evidence verdicts, and controls drawn from true positives at
+each score band.
+
+`google/gemini-2.5-flash`, 150 files, 719,559 tokens (about $0.30), zero failed calls:
+
+| | static only | with AI review |
+|---|---:|---:|
+| True positives | 91 | **101** |
+| False positives | 29 | **8** |
+| True negatives | 15 | 36 |
+| False negatives | 15 | **5** |
+
+**Twenty-one of twenty-nine quarantine-threshold false positives removed, with zero true
+positives lost.** That bucket held every such file in the corpus rather than a sample of
+them, so the figure carries over directly:
+
+> **Quarantine false-positive rate: 0.32% → 0.09%.**
+
+The ten recovered detections come from sampled buckets and do not extrapolate the same
+way; on the tested files, ten of fifteen missed detections were recovered.
+
+The corrections are legible, which matters more than the totals. Every `RichContentorFlash`
+sample, the IRS `f8xxx` accessible-forms family and the `purepdf_*` demos — scripted but
+benign documents the static rules over-weight. The eight promoted malware files all sat at
+exactly 76, capped by the corroboration ceiling, and the model supplied the corroboration
+the rules could not.
+
+**Where it does not help:** eight of forty-four clean files drifted upward, one from 40 to
+70. None crossed the quarantine threshold, but the layer is net positive with a small
+countervailing effect rather than uniformly protective. Reproduce with:
+
+```bash
+python tools/benchmark_ai.py benchmark-corroborated/results.csv --max-calls 150
+```
+
+Model choice matters more than expected. Of five models tested, three returned a
+near-constant score regardless of evidence — one answered 85 on eight of ten files at
+confidence 0.9. The benchmark reports score spread for exactly this reason: a model that
+calls everything malicious will "catch" malware and look successful in every other metric.
 
 Thresholds are adjustable in Settings.
 
@@ -372,8 +427,10 @@ endpoint antivirus does not quarantine the source file.
   consuming it should say which it is holding.** `text_source` records that on
   every scan.
 
-  OCR's remaining purpose is the AI evidence bundle, which benchmarks disable.
-  **Its value therefore rests on the AI layer, which is itself unmeasured.**
+  OCR's remaining purpose is the AI evidence bundle. That layer is now
+  [measured](#measured-effect), so OCR's contribution is finally separable — but it has
+  not yet been isolated, since the AI benchmark ran with OCR enabled throughout and no
+  paired OCR-off comparison exists. **OCR remains unproven on its own terms.**
 
   Confirm an engine is actually loaded before trusting any comparison — a run
   with no engine installed looks identical to one where OCR found nothing, which
@@ -448,17 +505,20 @@ obfuscated *names* by counting escapes does not.
 
 ## Roadmap
 
-- **Measure the AI review layer.** It is built but has no evidence behind it, and its
-  escalation gate stops at 84 — which excludes most remaining false positives, since they
-  score 85 or above. The layer meant to resolve ambiguity cannot see the ambiguous cases.
-- Measure OCR's effect on the full-corpus false-positive rate, and its benefit once the AI
-  layer is measured — the evidence bundle is the main consumer of recovered text
+- Re-measure the AI layer on a second model. The current figures come from one
+  provider, and three of five models tested could not do the task at all — that
+  variance belongs in the result, not in a footnote.
+- Measure OCR's effect on the full-corpus false-positive rate. Its value rests on the
+  evidence bundle, which the AI measurement now exercises, so the question is finally
+  answerable.
 - Optional ClamAV / VirusTotal enrichment
 - Scheduled full-folder sweeps
 - Signed builds, and a macOS package
 
 Done: [measured false-positive rate](#measured-performance) against a 20,207-document
-corpus, and [optional OCR](#5-ocr--optional-and-off-by-default) for image-only documents.
+corpus, [optional OCR](#5-ocr--optional-and-off-by-default) for image-only documents, and
+[a measured AI review layer](#measured-effect) — 0.32% → 0.09% quarantine false positives
+with no detection loss.
 
 ## Contributing
 

@@ -11,7 +11,70 @@ matters more to users than a UI tweak.
 
 ## [Unreleased]
 
+### Detection
+
+- **The AI review layer is now measured, and it works.** 150 files against
+  `google/gemini-2.5-flash`, 719,559 tokens, zero failed calls:
+
+  | | static only | with AI review |
+  |---|---:|---:|
+  | True positives | 91 | 101 |
+  | False positives | 29 | 8 |
+  | False negatives | 15 | 5 |
+
+  Twenty-one of twenty-nine quarantine-threshold false positives removed with
+  **zero true positives lost**. That bucket contained every such file in the
+  corpus rather than a sample, so it carries over: **quarantine false-positive
+  rate 0.32% → 0.09%**. The ten recovered detections come from sampled buckets
+  and do not extrapolate.
+
+  The measurement is paired — each file scored by the static engine and then by
+  the fused verdict — so it reports a per-file delta and sampling error does not
+  enter it. That is why a few hundred calls answer the question better than
+  20,000 would.
+
+- **A lone indicator can no longer reach quarantine.** `SOLE_INDICATOR_CEILING`
+  caps any score resting on a single finding at 79. Noisy-OR treats one heavy
+  indicator and several agreeing ones as interchangeable; they are not.
+
+- **Escalation is now evidence-aware.** A score at or above 85 skipped the model
+  entirely, which excluded most remaining false positives because they scored 85
+  or above — the layer meant to resolve ambiguity could not see the ambiguous
+  cases. High scores built on three or fewer indicators now escalate regardless
+  of score. Measured at twelve false positives per true positive, that is where
+  the disagreement lives.
+
+- **The model is no longer told the heuristic's score.** Sharing it produced
+  agreement rather than review: one model returned the engine's own number on
+  half the sample and called every file malicious, clean ones included. Agreement
+  presented as corroboration is worse than no second opinion. Re-enable with
+  `ai_share_heuristic_score` only to reproduce the anchored measurement.
+
 ### Added
+
+- **`tools/benchmark_ai.py`** — paired measurement of the AI layer against a
+  results CSV, with `--dry-run`, `--rpm` and `--max-calls`. Reports the confusion
+  matrix before and after fusion, every individual verdict change, mean score
+  drift on clean files, and score spread.
+
+  The last two exist because of failures they caught. Threshold crossings alone
+  hide a model that inflates clean documents until one finally crosses; spread
+  catches a model whose output is near-constant. Three of five models tested
+  returned essentially one score for every file — one answered 85 on eight of ten
+  at confidence 0.9, which every other metric reads as agreement.
+
+  Selection uses reserved quotas per bucket and interleaves them. An earlier
+  greedy version let one bucket consume the whole budget and left the controls
+  empty, so it could only find good news; a later run stopped at file 76 of 150
+  having sampled no controls at all.
+
+- **`tools/analyse_escalation.py`** — plans escalation volume, cost and coverage
+  from an existing results CSV with zero API calls.
+
+- **`tools/show_prompt.py`** — prints the exact prompt sent for one file. Written
+  to test whether the evidence bundle was one-sided enough to force a malicious
+  verdict. It was not, which redirected the investigation to model capability.
+
 - **Optional OCR for image-only documents** (`pdfsafe[ocr-tesseract]`), off by
   default. A scanned document yields no extractable text, so every text-based
   signal is blind to it and `PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT` cannot tell a
@@ -45,6 +108,37 @@ matters more to users than a UI tweak.
   visible rather than inferred.
 
 ### Fixed
+
+- **The custom provider no longer misreports why a call failed.** Four distinct
+  faults all surfaced as "could not locate a JSON object", sending every
+  investigation to the parser:
+
+  - *Truncation.* Thinking models bill reasoning against `max_tokens`, so a long
+    deliberation returns an empty message and no verdict. No parser can recover
+    text that was never emitted. `custom_ai_reasoning_effort` now defaults to
+    `none`, `custom_ai_max_tokens` to 4096, and truncation is reported with the
+    reasoning-token count that caused it.
+  - *Content filtering* is reported as itself. Malware evidence sent to a
+    consumer API is exactly what those filters exist to block.
+  - *Quota exhaustion vs rate limiting.* Both arrive as 429; backing off fixes
+    one and wastes the other. Retrying a spent quota consumed three requests
+    against the budget that had already run out, turning 150 files into 450
+    requests. Note the first fix was too eager — matching `billing` anywhere in
+    the body caught Groq's upgrade URL and made every ordinary rate limit
+    permanent.
+  - *HTTP 529.* Non-standard, widely used for "at capacity", and missing from the
+    retry set, so every occurrence failed on the first attempt — six of ten calls
+    in one run, at a status that clears in seconds.
+
+- **Unsupported request fields are dropped and retried once.** `reasoning_effort`
+  is required by Gemini and rejected outright by gpt-4o. Requiring the operator
+  to know which is which means every call fails when they guess wrong — and
+  PowerShell deletes an environment variable assigned an empty string, so
+  guessing wrong is easy. The endpoint is the authority; ask it once and remember.
+
+- **Retry backoff widened** from 1–20 s to 2–45 s. Three attempts inside three
+  seconds is not patience, it is three ways of asking at the same moment.
+
 - **`PDF_MINIMAL_DOC_WITH_ACTIVE_CONTENT` now counts only extracted text**, never
   OCR output, when deciding whether a page is empty. The rule asks whether a
   document carries real content or exists to hold a script; a page whose only
