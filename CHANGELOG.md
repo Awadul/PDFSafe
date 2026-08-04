@@ -13,25 +13,41 @@ matters more to users than a UI tweak.
 
 ### Detection
 
-- **The AI review layer is now measured, and it works.** 150 files against
-  `google/gemini-2.5-flash`, 719,559 tokens, zero failed calls:
+- **The AI review layer is now measured.** 150 files against
+  `google/gemini-2.5-flash`, 719,559 tokens, zero failed calls. The gate
+  consulted the model on 89; the rest were decided locally:
 
-  | | static only | with AI review |
-  |---|---:|---:|
-  | True positives | 91 | 101 |
-  | False positives | 29 | 8 |
-  | False negatives | 15 | 5 |
+  | | static | as shipped | if every file were sent |
+  |---|---:|---:|---:|
+  | True positives | 91 | 101 | 101 |
+  | False positives | 29 | 23 | 8 |
+  | False negatives | 15 | 5 | 5 |
 
-  Twenty-one of twenty-nine quarantine-threshold false positives removed with
-  **zero true positives lost**. That bucket contained every such file in the
-  corpus rather than a sample, so it carries over: **quarantine false-positive
-  rate 0.32% → 0.09%**. The ten recovered detections come from sampled buckets
-  and do not extrapolate.
+  As shipped: **ten of fifteen missed detections recovered, zero true positives
+  lost**, six of twenty-nine false positives corrected. Recall 86% → 95%.
+
+  **The layer earns its place on recall, not precision** — the reverse of its
+  design intent. The detection columns are identical with and without gating, so
+  the whole recall gain survives in production; most of the precision gain does
+  not.
+
+  The third column matters for honesty rather than marketing.
+  `benchmark_ai.py` runs with `force_ai=True` so that gating does not leave the
+  interesting files unmeasured, which means its raw output describes a
+  configuration PDFSafe does not ship. `tools/apply_gate.py` re-scores a
+  completed run through the real gate. Quoting the forced column as the
+  product's behaviour would have overstated false-positive removal by 3.5×.
 
   The measurement is paired — each file scored by the static engine and then by
   the fused verdict — so it reports a per-file delta and sampling error does not
   enter it. That is why a few hundred calls answer the question better than
   20,000 would.
+
+- **Known limit, now quantified:** the model correctly clears 15 further false
+  positives that the gate never sends it. They score 87–98 on 4–8 indicators, so
+  neither the score band nor the thin-evidence exception reaches them. The
+  documents the model is best at clearing are the ones the gate is most
+  confident it need not ask about.
 
 - **A lone indicator can no longer reach quarantine.** `SOLE_INDICATOR_CEILING`
   caps any score resting on a single finding at 79. Noisy-OR treats one heavy

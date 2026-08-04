@@ -7,8 +7,10 @@ A Windows desktop application that scans PDF files for malicious content before 
 them. It works entirely offline; AI review is optional and uses your own API key.
 
 Measured against 20,207 real documents: **0.32%** false positives at the quarantine
-threshold from the static engine alone, **0.09%** with AI review enabled, with no
-detection loss. Both figures, and the code that produced them, are in this repository.
+threshold. On a 150-file benchmark of the cases where the two layers can disagree,
+optional AI review recovered **10 of 15 missed detections with no true positives lost**.
+Every figure here, and the code that produced it, is in this repository — including
+[where the AI layer does not help](#what-the-gate-costs).
 
 ```
 PDFSafe.exe  →  drop a PDF  →  static analysis  →  verdict in ~1 second
@@ -29,7 +31,7 @@ structure and looks for exactly those capabilities, then scores what it finds.
 | ------------------------------ | ----------------------------------------------------------------------- |
 | **Verdict in about a second**  | Structural analysis, no signatures to download, no cloud round-trip     |
 | **Works offline**              | Every rule runs locally. With AI review off, nothing leaves the machine |
-| **Optional AI second opinion** | For ambiguous files — [measured](#measured-effect) at 72% fewer false positives, no detection loss |
+| **Optional AI second opinion** | For ambiguous files — [measured](#measured-effect): recovers missed detections, loses none |
 | **Quarantine**                 | Malicious files are renamed so they cannot open by accident — never deleted |
 | **Watch folders**              | New PDFs in Downloads are scanned automatically                         |
 | **Explorer integration**       | Right-click any PDF → _Scan with PDFSafe_                               |
@@ -145,36 +147,55 @@ therefore targets the cases where the two could disagree: every false positive a
 quarantine threshold, thin-evidence verdicts, and controls drawn from true positives at
 each score band.
 
-`google/gemini-2.5-flash`, 150 files, 719,559 tokens (about $0.30), zero failed calls:
+`google/gemini-2.5-flash`, 150 files, 719,559 tokens (about $0.30), zero failed calls.
+**The gate consulted the model on 89 of them; the other 61 were decided locally.**
 
-| | static only | with AI review |
-|---|---:|---:|
-| True positives | 91 | **101** |
-| False positives | 29 | **8** |
-| True negatives | 15 | 36 |
-| False negatives | 15 | **5** |
+| | static only | as shipped | if every file were sent |
+|---|---:|---:|---:|
+| True positives | 91 | **101** | 101 |
+| False positives | 29 | **23** | 8 |
+| True negatives | 15 | **21** | 36 |
+| False negatives | 15 | **5** | 5 |
 
-**Twenty-one of twenty-nine quarantine-threshold false positives removed, with zero true
-positives lost.** That bucket held every such file in the corpus rather than a sample of
-them, so the figure carries over directly:
+**The middle column is the product.** The right-hand column is what the model could do if
+the gate did not exist, and the two differ enough that quoting the wrong one would be
+misleading — `benchmark_ai.py` runs with `force_ai=True` deliberately, because gating
+first would leave most of the interesting files unmeasured, and `tools/apply_gate.py`
+re-scores a completed run through the gate that actually ships.
 
-> **Quarantine false-positive rate: 0.32% → 0.09%.**
+So, as shipped, on these 150 files:
 
-The ten recovered detections come from sampled buckets and do not extrapolate the same
-way; on the tested files, ten of fifteen missed detections were recovered.
+- **Ten of fifteen missed detections recovered.** Every one survives the gate: the
+  detection columns are identical whether or not gating is applied.
+- **Six of twenty-nine false positives corrected**, with **zero true positives lost**.
+- Recall on this sample rises from 86% to 95%.
 
-The corrections are legible, which matters more than the totals. Every `RichContentorFlash`
-sample, the IRS `f8xxx` accessible-forms family and the `purepdf_*` demos — scripted but
-benign documents the static rules over-weight. The eight promoted malware files all sat at
-exactly 76, capped by the corroboration ceiling, and the model supplied the corroboration
-the rules could not.
+**The layer earns its place on recall, not precision** — the opposite of what it was built
+for. Ten of the recovered detections sat at exactly 76, capped by the corroboration
+ceiling, and the model supplied the corroboration the rules could not.
 
-**Where it does not help:** eight of forty-four clean files drifted upward, one from 40 to
-70. None crossed the quarantine threshold, but the layer is net positive with a small
-countervailing effect rather than uniformly protective. Reproduce with:
+#### What the gate costs
+
+Fifteen further false positives were correctly identified by the model and then discarded,
+because the gate had already decided them locally — every `RichContentorFlash` sample, most
+of the IRS `f8xxx` accessible-forms family, `purepdf_javascript1`. They score 87–98 on 4–8
+indicators, so neither the score band nor the thin-evidence exception reaches them.
+
+That is the honest limit of the current design: **the documents the model is best at
+clearing are the ones the gate is most confident it does not need to ask about.** Widening
+it would cost one API call per high-scoring document, on every scan, for users who may
+have no key configured — so it is not a change to make from a 150-file sample. It is the
+first thing to measure next.
+
+**Where the model actively hurts:** eight of forty-four clean files drifted upward, one
+from 40 to 70. None crossed the threshold, but the layer is net positive with a
+countervailing effect rather than uniformly protective.
+
+Reproduce both columns:
 
 ```bash
 python tools/benchmark_ai.py benchmark-corroborated/results.csv --max-calls 150
+python tools/apply_gate.py benchmark-ai/changes.csv
 ```
 
 Model choice matters more than expected. Of five models tested, three returned a
@@ -543,6 +564,11 @@ obfuscated *names* by counting escapes does not.
 
 ## Roadmap
 
+- **Re-tune the escalation gate against measurement.** The model correctly clears 15
+  false positives it is never asked about, because they score 87–98 on 4–8 indicators.
+  The thin-evidence exception was calibrated before that was known. Widening it costs an
+  API call per high-scoring document on every scan, so the question is what that buys
+  across the full corpus, not across 150 files.
 - Re-measure the AI layer on a second model. The current figures come from one
   provider, and three of five models tested could not do the task at all — that
   variance belongs in the result, not in a footnote.
@@ -555,8 +581,9 @@ obfuscated *names* by counting escapes does not.
 
 Done: [measured false-positive rate](#measured-performance) against a 20,207-document
 corpus, [optional OCR](#5-ocr--optional-and-off-by-default) for image-only documents, and
-[a measured AI review layer](#measured-effect) — 0.32% → 0.09% quarantine false positives
-with no detection loss.
+[a measured AI review layer](#measured-effect) — 10 of 15 missed detections recovered with
+none lost, and an honest account of the 15 false positives the gate prevents it from
+seeing.
 
 ## Contributing
 
