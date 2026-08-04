@@ -144,6 +144,17 @@ class Settings(BaseSettings):
     ai_max_retries: int = 3
     ai_daily_token_budget: int = 0
     ai_share_text_excerpt: bool = True
+    # Whether the model is told the heuristic's score before judging. Sharing it
+    # produces agreement, not review: on gpt-4o-mini it echoed the score back on
+    # half the sample. Enable only to reproduce the anchored measurement.
+    ai_share_heuristic_score: bool = False
+    #: Escalate a score at or above ``ai_escalate_max_score`` anyway when it
+    #: rests on this few indicators. Measured over 20,207 documents, verdicts at
+    #: >= 80 built on one indicator were 8 false positives and 0 true positives;
+    #: at two or fewer, 12 against 1. Confidence in the score is not the same as
+    #: confidence in the evidence, and this is where they diverge. Set to 0 to
+    #: restore a purely score-based gate.
+    ai_escalate_thin_evidence_max: int = 3
 
     # ---------------------------------------------------------------- ocr ---
     # Off by default, and not merely for cost. OCR requires rasterising a page,
@@ -183,7 +194,12 @@ class Settings(BaseSettings):
     custom_ai_base_url: str = ""
     custom_ai_api_key: SecretStr = SecretStr("")
     custom_ai_model: str = ""
-    custom_ai_max_tokens: int = 2048
+    custom_ai_max_tokens: int = 4096
+    # Thinking models bill their reasoning against the same output budget, so a
+    # long deliberation returns an empty message rather than a verdict. Sending
+    # "none" disables it on endpoints that honour the field (Gemini, o-series);
+    # endpoints that do not recognise it ignore it. Empty string omits the field.
+    custom_ai_reasoning_effort: str = "none"
 
     # ------------------------------------------------------------ updates ---
     # Off by default. There is no release feed yet, so leaving this on means

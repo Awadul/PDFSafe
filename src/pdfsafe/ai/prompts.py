@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from pdfsafe.config import get_settings
 from pdfsafe.schemas.ai import AIVerdict, EvidenceBundle
 
 TOOL_NAME = "submit_pdf_verdict"
@@ -107,13 +108,20 @@ def build_user_prompt(evidence: EvidenceBundle) -> str:
     if evidence.metadata:
         sections.append("## Document metadata\n" + _kv(evidence.metadata))
 
-    sections.append(
-        "## Heuristic pre-assessment\n"
-        f"score: {evidence.heuristic_score}/100\n"
-        f"verdict: {evidence.heuristic_verdict.value}\n"
-        "(These are rule-based priors, not ground truth. Agree or disagree "
-        "based on the evidence below.)"
-    )
+    # Showing the model the score it is being asked to check invites agreement
+    # rather than review. Measured on gpt-4o-mini: it returned the heuristic's
+    # own score on 5 of 10 files and called all 10 malicious, including both
+    # clean ones. The "not ground truth, agree or disagree" caveat did not help;
+    # a weaker model reads the number, not the hedge. Off by default - a second
+    # opinion is only worth its cost when it is arrived at independently.
+    if get_settings().ai_share_heuristic_score:
+        sections.append(
+            "## Heuristic pre-assessment\n"
+            f"score: {evidence.heuristic_score}/100\n"
+            f"verdict: {evidence.heuristic_verdict.value}\n"
+            "(These are rule-based priors, not ground truth. Agree or disagree "
+            "based on the evidence below.)"
+        )
 
     if evidence.indicators:
         lines = [

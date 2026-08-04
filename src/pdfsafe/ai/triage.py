@@ -104,6 +104,24 @@ def should_escalate(
         return EscalationDecision(False, "below_escalation_threshold")
 
     if outcome.score >= settings.ai_escalate_max_score:
+        # A high score was assumed conclusive. Measured over 20,207 documents it
+        # is conclusive only when several independent signals agree:
+        #
+        #   indicators at >= 80 |  false positives  |  true positives
+        #   ------------------- | ----------------- | ----------------
+        #                     1 |         8         |        0
+        #                     2 |         4         |        1
+        #                     5 |        11         |    6,809
+        #
+        # Not one malware file in 11,106 reached the quarantine threshold on a
+        # single indicator; eight ordinary documents did. A verdict resting on
+        # one or two findings is therefore the *least* conclusive kind of high
+        # score, and exactly what a second opinion is for.
+        #
+        # This is nearly free: on the full corpus it adds five malware calls,
+        # because genuine malware trips five indicators or more.
+        if len(outcome.indicators) <= settings.ai_escalate_thin_evidence_max:
+            return EscalationDecision(True, "high_score_thin_evidence")
         return EscalationDecision(False, "above_escalation_threshold")
 
     return EscalationDecision(True, "ambiguous_band")
